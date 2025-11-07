@@ -65,14 +65,14 @@ jobs:
     needs: changes
     runs-on: ubuntu-latest
     if: >
-      (inputs.deploy_only != 'true') &&
+      inputs.deploy_only != 'true' &&
       (
-        (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
+        github.event_name == 'workflow_dispatch' ||
         needs.changes.outputs.app_changed == 'true' ||
         needs.changes.outputs.nginx_changed == 'true'
       )
     env:
-      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
+      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_only != 'true') || needs.changes.outputs.app_changed == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -124,9 +124,9 @@ jobs:
     needs: [lint-build, changes]
     runs-on: ubuntu-latest
     if: >
-      (inputs.deploy_only != 'true') &&
+      inputs.deploy_only != 'true' &&
       (
-        (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
+        github.event_name == 'workflow_dispatch' ||
         needs.changes.outputs.app_changed == 'true' ||
         needs.changes.outputs.nginx_changed == 'true'
       )
@@ -136,8 +136,8 @@ jobs:
       next_built: ${{ steps.build_next.outputs.digest != '' }}
       nginx_built: ${{ steps.build_nginx.outputs.digest != '' }}
     env:
-      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
-      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.nginx_changed == 'true' }}
+      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_only != 'true') || needs.changes.outputs.app_changed == 'true' }}
+      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.deploy_only != 'true') || needs.changes.outputs.nginx_changed == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
