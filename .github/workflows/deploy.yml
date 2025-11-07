@@ -201,7 +201,8 @@ jobs:
             export SSL_EMAIL="${SSL_EMAIL:-}"
             export DOMAINS="${DOMAINS:-}"
             docker compose pull
-            docker compose up -d --remove-orphans
+            docker compose down --remove-orphans
+            docker compose up -d
 
   manual-deploy:
     if: >
@@ -284,4 +285,5 @@ jobs:
             export NEXT_IMAGE="${MANUAL_NEXT_IMAGE}"
             export NGINX_IMAGE="${MANUAL_NGINX_IMAGE}"
             docker compose pull
-            docker compose up -d --remove-orphans
+            docker compose down --remove-orphans
+            docker compose up -d
