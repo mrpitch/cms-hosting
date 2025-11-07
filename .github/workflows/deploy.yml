@@ -224,9 +224,9 @@ jobs:
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
           source: |
-              ${{ github.workspace }}/docker-compose.yml
-              ${{ github.workspace }}/.env
-              ${{ github.workspace }}/nginx/
+            docker-compose.yml
+            .env
+            nginx/
           target: ${{ env.REMOTE_PROJECT_PATH }}
 
       - name: Deploy via SSH
