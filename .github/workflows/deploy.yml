@@ -69,11 +69,10 @@ jobs:
       (
         (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
         needs.changes.outputs.app_changed == 'true' ||
-        needs.changes.outputs.nginx_changed == 'true' ||
-        github.run_attempt > 1
+        needs.changes.outputs.nginx_changed == 'true'
       )
     env:
-      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' || github.run_attempt > 1 }}
+      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -129,8 +128,7 @@ jobs:
       (
         (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
         needs.changes.outputs.app_changed == 'true' ||
-        needs.changes.outputs.nginx_changed == 'true' ||
-        github.run_attempt > 1
+        needs.changes.outputs.nginx_changed == 'true'
       )
     outputs:
       next_image: ${{ steps.images.outputs.next_image }}
@@ -138,8 +136,8 @@ jobs:
       next_built: ${{ steps.build_next.outputs.digest != '' }}
       nginx_built: ${{ steps.build_nginx.outputs.digest != '' }}
     env:
-      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' || github.run_attempt > 1 }}
-      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.nginx_changed == 'true' || github.run_attempt > 1 }}
+      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
+      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.nginx_changed == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -205,17 +203,11 @@ jobs:
   deploy:
     needs: [docker]
     if: >
-      always() &&
+      needs.docker.result == 'success' &&
       (
-        (github.event_name == 'workflow_dispatch' && inputs.deploy_only == 'true') ||
-        (
-          needs.docker.result == 'success' &&
-          (
-            github.event_name == 'workflow_dispatch' ||
-            github.ref == 'refs/heads/main' ||
-            github.event_name == 'pull_request'
-          )
-        )
+        github.event_name == 'workflow_dispatch' ||
+        github.ref == 'refs/heads/main' ||
+        github.event_name == 'pull_request'
       )
     runs-on: ubuntu-latest
     env:
@@ -226,8 +218,8 @@ jobs:
       DOMAIN: ${{ secrets.DOMAIN }}
       DOMAINS: ${{ secrets.DOMAINS }}
       SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
-      DOCKER_NEXT_IMAGE: ${{ needs.docker.outputs.next_image }}
-      DOCKER_NGINX_IMAGE: ${{ needs.docker.outputs.nginx_image }}
+      NEXT_IMAGE: ${{ needs.docker.outputs.next_image }}:latest
+      NGINX_IMAGE: ${{ needs.docker.outputs.nginx_image }}:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -236,17 +228,6 @@ jobs:
         run: |
           pwd
           ls -R "${{ github.workspace }}"
-
-      - name: Resolve image references
-        run: |
-          set -euo pipefail
-          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
-          DEFAULT_NEXT="${REGISTRY}/${REPO}-next"
-          DEFAULT_NGINX="${REGISTRY}/${REPO}-nginx"
-          NEXT_REF="${DOCKER_NEXT_IMAGE:-$DEFAULT_NEXT}"
-          NGINX_REF="${DOCKER_NGINX_IMAGE:-$DEFAULT_NGINX}"
-          echo "RESOLVED_NEXT_IMAGE=${NEXT_REF}" >> "$GITHUB_ENV"
-          echo "RESOLVED_NGINX_IMAGE=${NGINX_REF}" >> "$GITHUB_ENV"
 
       - name: Prepare deployment bundle
         run: |
@@ -272,14 +253,81 @@ jobs:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,RESOLVED_NEXT_IMAGE,RESOLVED_NGINX_IMAGE
+          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,NEXT_IMAGE,NGINX_IMAGE
           script: |
             set -euo pipefail
             cd "${REMOTE_PROJECT_PATH}"
             export DOMAIN="${DOMAIN:-}"
             export SSL_EMAIL="${SSL_EMAIL:-}"
             export DOMAINS="${DOMAINS:-}"
-            export NEXT_IMAGE="${RESOLVED_NEXT_IMAGE}:latest"
-            export NGINX_IMAGE="${RESOLVED_NGINX_IMAGE}:latest"
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+  manual-deploy:
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      inputs.deploy_only == 'true'
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+      REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
+      DOMAIN: ${{ secrets.DOMAIN }}
+      DOMAINS: ${{ secrets.DOMAINS }}
+      SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Debug workspace
+        run: |
+          pwd
+          ls -R "${{ github.workspace }}"
+
+      - name: Determine image tags
+        id: manual_images
+        run: |
+          set -euo pipefail
+          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          echo "next_image=${REGISTRY}/${REPO}-next:latest" >> "$GITHUB_OUTPUT"
+          echo "nginx_image=${REGISTRY}/${REPO}-nginx:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare deployment bundle
+        run: |
+          set -euo pipefail
+          mkdir -p deploy_bundle
+          cp docker-compose.yml deploy_bundle/
+          if [ -f .env ]; then cp .env deploy_bundle/; fi
+          cp -R nginx deploy_bundle/
+
+      - name: Copy deployment files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          source: deploy_bundle/
+          target: ${{ env.REMOTE_PROJECT_PATH }}
+          strip_components: 1
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          MANUAL_NEXT_IMAGE: ${{ steps.manual_images.outputs.next_image }}
+          MANUAL_NGINX_IMAGE: ${{ steps.manual_images.outputs.nginx_image }}
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,MANUAL_NEXT_IMAGE,MANUAL_NGINX_IMAGE
+          script: |
+            set -euo pipefail
+            cd "${REMOTE_PROJECT_PATH}"
+            export DOMAIN="${DOMAIN:-}"
+            export SSL_EMAIL="${SSL_EMAIL:-}"
+            export DOMAINS="${DOMAINS:-}"
+            export NEXT_IMAGE="${MANUAL_NEXT_IMAGE}"
+            export NGINX_IMAGE="${MANUAL_NGINX_IMAGE}"
             docker compose pull
             docker compose up -d --remove-orphans
