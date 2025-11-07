@@ -112,11 +112,8 @@ jobs:
             ${{ steps.images.outputs.next_image }}:latest
             ${{ steps.images.outputs.next_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ steps.images.outputs.next_image }}:latest
-          cache-to: |
-            type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
           no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
 
       - name: Build & push Nginx image
@@ -129,11 +126,8 @@ jobs:
             ${{ steps.images.outputs.nginx_image }}:latest
             ${{ steps.images.outputs.nginx_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ steps.images.outputs.nginx_image }}:latest
-          cache-to: |
-            type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
           no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
 
   deploy:

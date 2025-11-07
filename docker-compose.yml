@@ -9,7 +9,7 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
-      - ./app.env
+      - ./.env
     environment:
       - NODE_ENV=production
       - HOSTNAME=0.0.0.0
@@ -55,4 +55,3 @@ volumes:
   certbot-etc:
   certbot-var:
   certbot-webroot:
-
