@@ -78,8 +78,8 @@ jobs:
       - name: Build and (optionally) push Next.js image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile
+          context: ${{ github.workspace }}
+          file: ${{ github.workspace }}/Dockerfile
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: |
             ${{ steps.images.outputs.next_image }}:latest
@@ -89,8 +89,8 @@ jobs:
       - name: Build and (optionally) push Nginx image
         uses: docker/build-push-action@v6
         with:
-          context: /nginx
-          file: /nginx/Dockerfile
+          context: ${{ github.workspace }}/nginx
+          file: ${{ github.workspace }}/nginx/Dockerfile
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: |
             ${{ steps.images.outputs.nginx_image }}:latest
