@@ -7,27 +7,63 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "Force rebuild and push images (ignore cache and skip logic)"
+        required: false
+        default: "false"
 
-# Avoid parallel runs of same workflow on the same branch
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# Allow registry publishing from the built-in token
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
   # ------------------------------
-  #  Lint + Build (Next.js / pnpm)
+  # Detect whether build is needed
+  # ------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app_changed: ${{ steps.filter.outputs.app }}
+      nginx_changed: ${{ steps.filter.outputs.nginx }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect source changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'next.config.js'
+              - 'Dockerfile'
+            nginx:
+              - 'nginx/**'
+              - 'nginx/Dockerfile'
+              - 'docker-compose.yml'
+
+  # ------------------------------
+  # Lint + Build (Next.js / pnpm)
   # ------------------------------
   lint-build:
+    needs: changes
+    if: |
+      inputs.force_rebuild == 'true' ||
+      needs.changes.outputs.app_changed == 'true' ||
+      needs.changes.outputs.nginx_changed == 'true'
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,15 +94,19 @@ jobs:
         run: pnpm run build
 
   # ------------------------------
-  #  Docker build & push to GHCR
+  # Docker build & push to GHCR
   # ------------------------------
   docker:
-    needs: lint-build
+    needs: [lint-build, changes]
     runs-on: ubuntu-latest
+    if: |
+      inputs.force_rebuild == 'true' ||
+      needs.changes.outputs.app_changed == 'true' ||
+      needs.changes.outputs.nginx_changed == 'true' ||
+      github.event_name == 'workflow_dispatch'
     outputs:
       next_image: ${{ steps.images.outputs.next_image }}
       nginx_image: ${{ steps.images.outputs.nginx_image }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,16 +114,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Log into GHCR with the repo's built-in token
-      - name: Log in to registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Derive image names based on the repository path
       - name: Derive image names
         id: images
         run: |
@@ -91,97 +128,80 @@ jobs:
           echo "next_image=${REGISTRY}/${REPO}-next" >> "$GITHUB_OUTPUT"
           echo "nginx_image=${REGISTRY}/${REPO}-nginx" >> "$GITHUB_OUTPUT"
 
-      - name: Build and (optionally) push Next.js image
+      - name: Build & push Next.js image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ github.workspace }}
-          file: ${{ github.workspace }}/Dockerfile
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          context: .
+          file: Dockerfile
+          push: true
           tags: |
             ${{ steps.images.outputs.next_image }}:latest
             ${{ steps.images.outputs.next_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Build and (optionally) push Nginx image
+      - name: Build & push Nginx image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ github.workspace }}/nginx
-          file: ${{ github.workspace }}/nginx/Dockerfile
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          context: nginx
+          file: nginx/Dockerfile
+          push: true
           tags: |
             ${{ steps.images.outputs.nginx_image }}:latest
             ${{ steps.images.outputs.nginx_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-
-      # Optional: automatically ensure GHCR packages are public
-      - name: Make GHCR images public (optional)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for pkg in cms-hosting-next cms-hosting-nginx; do
-            echo "Setting visibility for $pkg to public..."
-            gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              /user/packages/container/$pkg/visibility \
-              -f visibility=public || true
-          done
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ------------------------------
-  #  Deploy to Hetzner VM via SSH
+  # Deploy to Hetzner VM via SSH
   # ------------------------------
   deploy:
-      needs: docker
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      runs-on: ubuntu-latest
-      env:
-        SSH_HOST: ${{ secrets.SSH_HOST }}
-        SSH_USER: ${{ secrets.SSH_USER }}
-        SSH_KEY: ${{ secrets.SSH_KEY }}
-        REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
-        DOMAIN: ${{ secrets.DOMAIN }}
-        DOMAINS: ${{ secrets.DOMAINS }}
-        SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
-  
-      steps:
-        # 1️⃣ Debug workspace
-        - name: Debug workspace
-          run: |
-            pwd
-            ls -R .
+    needs: [docker]
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.ref == 'refs/heads/main' ||
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+      REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
+      DOMAIN: ${{ secrets.DOMAIN }}
+      DOMAINS: ${{ secrets.DOMAINS }}
+      SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        # 2️⃣ Upload your docker-compose.yml, nginx configs, env files, etc.
-        - name: Copy deployment files to server
-          uses: appleboy/scp-action@v0.1.7
-          with:
-            host: ${{ env.SSH_HOST }}
-            username: ${{ env.SSH_USER }}
-            key: ${{ env.SSH_KEY }}
-            source: |
-              docker-compose.yml
-              .env
-              nginx/
-            target: ${{ env.REMOTE_PROJECT_PATH }}
-  
-        # 3️⃣ Run docker compose remotely
-        - name: Deploy via SSH
-          if: env.SSH_HOST != ''
-          uses: appleboy/ssh-action@v1.0.3
-          with:
-            host: ${{ env.SSH_HOST }}
-            username: ${{ env.SSH_USER }}
-            key: ${{ env.SSH_KEY }}
-            envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH
-            script: |
-              set -euo pipefail
-              cd "${REMOTE_PROJECT_PATH}"
-              export DOMAIN="${DOMAIN:-}"
-              export SSL_EMAIL="${SSL_EMAIL:-}"
-              export DOMAINS="${DOMAINS:-}"
-              export STAGING=false
-              export NEXT_IMAGE=${{ needs.docker.outputs.next_image }}:latest
-              export NGINX_IMAGE=${{ needs.docker.outputs.nginx_image }}:latest
-              docker compose pull
-              docker compose up -d --remove-orphans
-  
+      - name: Copy deployment files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          source: |
+            docker-compose.yml
+            .env
+            nginx/
+          target: ${{ env.REMOTE_PROJECT_PATH }}
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH
+          script: |
+            set -euo pipefail
+            cd "${REMOTE_PROJECT_PATH}"
+            export DOMAIN="${DOMAIN:-}"
+            export SSL_EMAIL="${SSL_EMAIL:-}"
+            export DOMAINS="${DOMAINS:-}"
+            export NEXT_IMAGE=${{ needs.docker.outputs.next_image }}:latest
+            export NGINX_IMAGE=${{ needs.docker.outputs.nginx_image }}:latest
+            docker compose pull
+            docker compose up -d --remove-orphans
