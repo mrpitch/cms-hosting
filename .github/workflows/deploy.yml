@@ -272,7 +272,7 @@ jobs:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH
+          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,RESOLVED_NEXT_IMAGE,RESOLVED_NGINX_IMAGE
           script: |
             set -euo pipefail
             cd "${REMOTE_PROJECT_PATH}"
