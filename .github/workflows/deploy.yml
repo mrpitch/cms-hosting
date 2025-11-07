@@ -152,6 +152,7 @@ jobs:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
+          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH
           script: |
             set -euo pipefail
             export DOMAIN="${DOMAIN}"
