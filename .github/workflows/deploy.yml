@@ -89,7 +89,7 @@ jobs:
 
   deploy:
     needs: docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.SSH_HOST != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -101,6 +101,7 @@ jobs:
       SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
     steps:
       - name: Deploy via SSH
+        if: env.SSH_HOST != ''
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.SSH_HOST }}
