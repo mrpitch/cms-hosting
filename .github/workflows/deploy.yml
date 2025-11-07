@@ -60,9 +60,6 @@ jobs:
   lint-build:
     needs: changes
     runs-on: ubuntu-latest
-    env:
-      APP_CHANGED: ${{ needs.changes.outputs.app_changed || 'false' }}
-      NGINX_CHANGED: ${{ needs.changes.outputs.nginx_changed || 'false' }}
     if: |
       (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
       needs.changes.outputs.app_changed == 'true' ||
@@ -105,10 +102,11 @@ jobs:
     needs: [lint-build, changes]
     runs-on: ubuntu-latest
     if: |
-      inputs.force_rebuild == 'true' ||
+      (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
       needs.changes.outputs.app_changed == 'true' ||
       needs.changes.outputs.nginx_changed == 'true' ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request'
     outputs:
       next_image: ${{ steps.images.outputs.next_image }}
       nginx_image: ${{ steps.images.outputs.nginx_image }}
@@ -164,10 +162,11 @@ jobs:
   # ------------------------------
   deploy:
     needs: [docker]
-    if: |
-      github.event_name == 'workflow_dispatch' ||
+    if: >
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
       github.ref == 'refs/heads/main' ||
-      github.event_name == 'pull_request'
+      github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
