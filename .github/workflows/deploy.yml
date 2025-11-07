@@ -173,6 +173,7 @@ jobs:
           EOF
           
           cp -R nginx deploy_bundle/
+          cp -R certbot deploy_bundle/
 
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
@@ -248,6 +249,7 @@ jobs:
           EOF
           
           cp -R nginx deploy_bundle/
+          cp -R certbot deploy_bundle/
 
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
