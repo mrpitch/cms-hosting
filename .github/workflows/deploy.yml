@@ -1,0 +1,112 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  docker:
+    needs: lint-build
+    runs-on: ubuntu-latest
+    outputs:
+      next_image: ${{ steps.images.outputs.next_image }}
+      nginx_image: ${{ steps.images.outputs.nginx_image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image names
+        id: images
+        run: |
+          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          echo "next_image=${REGISTRY}/${REPO}-next" >> "$GITHUB_OUTPUT"
+          echo "nginx_image=${REGISTRY}/${REPO}-nginx" >> "$GITHUB_OUTPUT"
+
+      - name: Build and (optionally) push Next.js image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ steps.images.outputs.next_image }}:latest
+            ${{ steps.images.outputs.next_image }}:${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build and (optionally) push Nginx image
+        uses: docker/build-push-action@v6
+        with:
+          context: /nginx
+          file: /nginx/Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ steps.images.outputs.nginx_image }}:latest
+            ${{ steps.images.outputs.nginx_image }}:${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+
+  deploy:
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.SSH_HOST != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSHs
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            export DOMAIN=${{ secrets.DOMAIN }}
+            export SSL_EMAIL=${{ secrets.SSL_EMAIL }}
+            export DOMAINS=${{ secrets.DOMAINS }}
+            export STAGING=false
+            export NEXT_IMAGE=${{ needs.docker.outputs.next_image }}:latest
+            export NGINX_IMAGE=${{ needs.docker.outputs.nginx_image }}:latest
+            cd ${{ secrets.REMOTE_PROJECT_PATH }}
+            docker compose pull
+            docker compose up -d --remove-orphans
+
