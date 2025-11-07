@@ -33,8 +33,7 @@ services:
     restart: unless-stopped
 
   certbot:
-    build:
-      context: ./certbot
+    image: certbot/certbot:latest
     depends_on:
       - reverse-proxy
     environment:
@@ -46,6 +45,8 @@ services:
       - certbot-etc:/etc/letsencrypt
       - certbot-var:/var/lib/letsencrypt
       - certbot-webroot:/var/www/certbot
+      - ./certbot/renew.sh:/opt/certbot/renew.sh:ro
+    entrypoint: ["/bin/sh", "/opt/certbot/renew.sh"]
     command: ["renew"]
     restart: unless-stopped
 
