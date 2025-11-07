@@ -60,12 +60,12 @@ jobs:
   lint-build:
     needs: changes
     runs-on: ubuntu-latest
-    if: |
+    if: >
       (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
       needs.changes.outputs.app_changed == 'true' ||
-      needs.changes.outputs.nginx_changed == 'true' ||
-      github.event_name == 'push' ||
-      github.event_name == 'pull_request'
+      needs.changes.outputs.nginx_changed == 'true'
+    env:
+      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,9 +74,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+        if: env.APP_BUILD_REQUIRED == 'true'
 
       - name: Enable Corepack (to use pnpm)
         run: corepack enable
+        if: env.APP_BUILD_REQUIRED == 'true'
 
       - name: Restore pnpm cache
         uses: actions/cache@v4
@@ -85,15 +87,28 @@ jobs:
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-
+        if: env.APP_BUILD_REQUIRED == 'true'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        if: env.APP_BUILD_REQUIRED == 'true'
+
+      - name: Cache Next.js build artifacts
+        uses: actions/cache@v4
+        if: env.APP_BUILD_REQUIRED == 'true'
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-next-build-${{ hashFiles('pnpm-lock.yaml', 'next.config.js') }}
+          restore-keys: |
+            ${{ runner.os }}-next-build-
 
       - name: Lint
         run: pnpm run lint
+        if: env.APP_BUILD_REQUIRED == 'true'
 
       - name: Build
         run: pnpm run build
+        if: env.APP_BUILD_REQUIRED == 'true'
 
   # ------------------------------
   # Docker build & push to GHCR
@@ -101,15 +116,18 @@ jobs:
   docker:
     needs: [lint-build, changes]
     runs-on: ubuntu-latest
-    if: |
+    if: >
       (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
       needs.changes.outputs.app_changed == 'true' ||
-      needs.changes.outputs.nginx_changed == 'true' ||
-      github.event_name == 'push' ||
-      github.event_name == 'pull_request'
+      needs.changes.outputs.nginx_changed == 'true'
     outputs:
       next_image: ${{ steps.images.outputs.next_image }}
       nginx_image: ${{ steps.images.outputs.nginx_image }}
+      next_built: ${{ steps.build_next.outputs.digest != '' }}
+      nginx_built: ${{ steps.build_nginx.outputs.digest != '' }}
+    env:
+      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
+      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.nginx_changed == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -133,6 +151,8 @@ jobs:
 
       - name: Build & push Next.js image
         uses: docker/build-push-action@v6
+        id: build_next
+        if: env.BUILD_NEXT_IMAGE == 'true'
         with:
           context: .
           file: Dockerfile
@@ -141,11 +161,17 @@ jobs:
             ${{ steps.images.outputs.next_image }}:latest
             ${{ steps.images.outputs.next_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ steps.images.outputs.next_image }}:latest
+          cache-to: |
+            type=gha,mode=max
+          no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
 
       - name: Build & push Nginx image
         uses: docker/build-push-action@v6
+        id: build_nginx
+        if: env.BUILD_NGINX_IMAGE == 'true'
         with:
           context: nginx
           file: nginx/Dockerfile
@@ -154,8 +180,12 @@ jobs:
             ${{ steps.images.outputs.nginx_image }}:latest
             ${{ steps.images.outputs.nginx_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ steps.images.outputs.nginx_image }}:latest
+          cache-to: |
+            type=gha,mode=max
+          no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
 
   # ------------------------------
   # Deploy to Hetzner VM via SSH
@@ -163,7 +193,7 @@ jobs:
   deploy:
     needs: [docker]
     if: >
-      always() &&
+      needs.docker.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
       github.ref == 'refs/heads/main' ||
       github.event_name == 'pull_request')
@@ -192,8 +222,8 @@ jobs:
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
           source: |
-              ${{ github.workspace }}docker-compose.yml
-              ${{ github.workspace }}.env
+              ${{ github.workspace }}/docker-compose.yml
+              ${{ github.workspace }}/.env
               ${{ github.workspace }}/nginx/
           target: ${{ env.REMOTE_PROJECT_PATH }}
 
