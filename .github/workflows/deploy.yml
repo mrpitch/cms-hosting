@@ -63,9 +63,10 @@ jobs:
     if: >
       (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
       needs.changes.outputs.app_changed == 'true' ||
-      needs.changes.outputs.nginx_changed == 'true'
+      needs.changes.outputs.nginx_changed == 'true' ||
+      github.run_attempt > 1
     env:
-      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
+      APP_BUILD_REQUIRED: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' || github.run_attempt > 1 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -119,15 +120,16 @@ jobs:
     if: >
       (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
       needs.changes.outputs.app_changed == 'true' ||
-      needs.changes.outputs.nginx_changed == 'true'
+      needs.changes.outputs.nginx_changed == 'true' ||
+      github.run_attempt > 1
     outputs:
       next_image: ${{ steps.images.outputs.next_image }}
       nginx_image: ${{ steps.images.outputs.nginx_image }}
       next_built: ${{ steps.build_next.outputs.digest != '' }}
       nginx_built: ${{ steps.build_nginx.outputs.digest != '' }}
     env:
-      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' }}
-      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.nginx_changed == 'true' }}
+      BUILD_NEXT_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.app_changed == 'true' || github.run_attempt > 1 }}
+      BUILD_NGINX_IMAGE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') || needs.changes.outputs.nginx_changed == 'true' || github.run_attempt > 1 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
