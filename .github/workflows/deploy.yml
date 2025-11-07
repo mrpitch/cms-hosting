@@ -170,6 +170,8 @@ jobs:
           DOMAIN=${DOMAIN}
           DOMAINS=${DOMAINS}
           SSL_EMAIL=${SSL_EMAIL}
+          NEXT_IMAGE=${NEXT_IMAGE}
+          NGINX_IMAGE=${NGINX_IMAGE}
           EOF
           
           cp -R nginx deploy_bundle/
@@ -246,6 +248,8 @@ jobs:
           DOMAIN=${DOMAIN}
           DOMAINS=${DOMAINS}
           SSL_EMAIL=${SSL_EMAIL}
+          NEXT_IMAGE=${NEXT_IMAGE}
+          NGINX_IMAGE=${NGINX_IMAGE}
           EOF
           
           cp -R nginx deploy_bundle/
