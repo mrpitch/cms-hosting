@@ -8,16 +8,26 @@ on:
     branches:
       - main
 
+# Avoid parallel runs of same workflow on the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Allow registry publishing from the built-in token
+permissions:
+  contents: read
+  packages: write
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
+  # ------------------------------
+  #  Lint + Build (Next.js / pnpm)
+  # ------------------------------
   lint-build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,7 +39,7 @@ jobs:
 
       - name: Enable Corepack (to use pnpm)
         run: corepack enable
-      
+
       - name: Restore pnpm cache
         uses: actions/cache@v4
         with:
@@ -39,7 +49,7 @@ jobs:
             ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
-        run: corepack pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm run lint
@@ -47,12 +57,16 @@ jobs:
       - name: Build
         run: pnpm run build
 
+  # ------------------------------
+  #  Docker build & push to GHCR
+  # ------------------------------
   docker:
     needs: lint-build
     runs-on: ubuntu-latest
     outputs:
       next_image: ${{ steps.images.outputs.next_image }}
       nginx_image: ${{ steps.images.outputs.nginx_image }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,6 +74,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Log into GHCR with the repo's built-in token
       - name: Log in to registry
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
@@ -68,6 +83,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Derive image names based on the repository path
       - name: Derive image names
         id: images
         run: |
@@ -97,6 +113,24 @@ jobs:
             ${{ steps.images.outputs.nginx_image }}:${{ github.sha }}
           platforms: linux/amd64,linux/arm64
 
+      # Optional: automatically ensure GHCR packages are public
+      - name: Make GHCR images public (optional)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for pkg in cms-hosting-next cms-hosting-nginx; do
+            echo "Setting visibility for $pkg to public..."
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              /user/packages/container/$pkg/visibility \
+              -f visibility=public || true
+          done
+
+  # ------------------------------
+  #  Deploy to Hetzner VM via SSH
+  # ------------------------------
   deploy:
     needs: docker
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -109,6 +143,7 @@ jobs:
       DOMAIN: ${{ secrets.DOMAIN }}
       DOMAINS: ${{ secrets.DOMAINS }}
       SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
+
     steps:
       - name: Deploy via SSH
         if: env.SSH_HOST != ''
@@ -128,4 +163,3 @@ jobs:
             cd "${REMOTE_PROJECT_PATH}"
             docker compose pull
             docker compose up -d --remove-orphans
-
