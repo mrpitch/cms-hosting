@@ -22,20 +22,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
+          node-version: "22"
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
   docker:
     needs: lint-build
