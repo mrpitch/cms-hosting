@@ -160,7 +160,18 @@ jobs:
           set -euo pipefail
           mkdir -p deploy_bundle
           cp docker-compose.yml deploy_bundle/
-          if [ -f .env ]; then cp .env deploy_bundle/; fi
+          
+          # Generate .env from secrets
+          cat > deploy_bundle/.env << EOF
+          NODE_ENV=production
+          PORT=3000
+          NEXT_TELEMETRY_DISABLED=1
+          NEXT_PUBLIC_SITE_URL=https://${DOMAIN}
+          DOMAIN=${DOMAIN}
+          DOMAINS=${DOMAINS}
+          SSL_EMAIL=${SSL_EMAIL}
+          EOF
+          
           cp -R nginx deploy_bundle/
 
       - name: Copy deployment files to server
@@ -224,7 +235,18 @@ jobs:
           set -euo pipefail
           mkdir -p deploy_bundle
           cp docker-compose.yml deploy_bundle/
-          if [ -f .env ]; then cp .env deploy_bundle/; fi
+          
+          # Generate .env from secrets
+          cat > deploy_bundle/.env << EOF
+          NODE_ENV=production
+          PORT=3000
+          NEXT_TELEMETRY_DISABLED=1
+          NEXT_PUBLIC_SITE_URL=https://${DOMAIN}
+          DOMAIN=${DOMAIN}
+          DOMAINS=${DOMAINS}
+          SSL_EMAIL=${SSL_EMAIL}
+          EOF
+          
           cp -R nginx deploy_bundle/
 
       - name: Copy deployment files to server
