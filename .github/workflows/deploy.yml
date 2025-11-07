@@ -180,6 +180,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug workspace
+        run: |
+          pwd
+          ls -R "${{ github.workspace }}"
+
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -187,9 +192,9 @@ jobs:
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
           source: |
-            docker-compose.yml
-            .env
-            nginx/
+              ${{ github.workspace }}docker-compose.yml
+              ${{ github.workspace }}.env
+              ${{ github.workspace }}/nginx/
           target: ${{ env.REMOTE_PROJECT_PATH }}
 
       - name: Deploy via SSH
