@@ -59,11 +59,16 @@ jobs:
   # ------------------------------
   lint-build:
     needs: changes
-    if: |
-      inputs.force_rebuild == 'true' ||
-      needs.changes.outputs.app_changed == 'true' ||
-      needs.changes.outputs.nginx_changed == 'true'
     runs-on: ubuntu-latest
+    env:
+      APP_CHANGED: ${{ needs.changes.outputs.app_changed || 'false' }}
+      NGINX_CHANGED: ${{ needs.changes.outputs.nginx_changed || 'false' }}
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true') ||
+      needs.changes.outputs.app_changed == 'true' ||
+      needs.changes.outputs.nginx_changed == 'true' ||
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
