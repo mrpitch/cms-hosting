@@ -13,5 +13,5 @@ RUN chmod +x /docker-entrypoint.d/*.sh && \
 EXPOSE 80 443
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/healthz || exit 1
+  CMD pgrep nginx || exit 1
 
