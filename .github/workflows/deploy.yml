@@ -132,35 +132,50 @@ jobs:
   #  Deploy to Hetzner VM via SSH
   # ------------------------------
   deploy:
-    needs: docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    env:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
-      REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
-      DOMAIN: ${{ secrets.DOMAIN }}
-      DOMAINS: ${{ secrets.DOMAINS }}
-      SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
-
-    steps:
-      - name: Deploy via SSH
-        if: env.SSH_HOST != ''
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH
-          script: |
-            set -euo pipefail
-            export DOMAIN="${DOMAIN}"
-            export SSL_EMAIL="${SSL_EMAIL}"
-            export DOMAINS="${DOMAINS}"
-            export STAGING=false
-            export NEXT_IMAGE=${{ needs.docker.outputs.next_image }}:latest
-            export NGINX_IMAGE=${{ needs.docker.outputs.nginx_image }}:latest
-            cd "${REMOTE_PROJECT_PATH}"
-            docker compose pull
-            docker compose up -d --remove-orphans
+      needs: docker
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      runs-on: ubuntu-latest
+      env:
+        SSH_HOST: ${{ secrets.SSH_HOST }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+        SSH_KEY: ${{ secrets.SSH_KEY }}
+        REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
+        DOMAIN: ${{ secrets.DOMAIN }}
+        DOMAINS: ${{ secrets.DOMAINS }}
+        SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
+  
+      steps:
+        # 1️⃣ Upload your docker-compose.yml, nginx configs, env files, etc.
+        - name: Copy deployment files to server
+          uses: appleboy/scp-action@v0.1.7
+          with:
+            host: ${{ env.SSH_HOST }}
+            username: ${{ env.SSH_USER }}
+            key: ${{ env.SSH_KEY }}
+            source: |
+              docker-compose.yml
+              .env
+              nginx/
+            target: ${{ env.REMOTE_PROJECT_PATH }}
+  
+        # 2️⃣ Run docker compose remotely
+        - name: Deploy via SSH
+          if: env.SSH_HOST != ''
+          uses: appleboy/ssh-action@v1.0.3
+          with:
+            host: ${{ env.SSH_HOST }}
+            username: ${{ env.SSH_USER }}
+            key: ${{ env.SSH_KEY }}
+            envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH
+            script: |
+              set -euo pipefail
+              cd "${REMOTE_PROJECT_PATH}"
+              export DOMAIN="${DOMAIN:-}"
+              export SSL_EMAIL="${SSL_EMAIL:-}"
+              export DOMAINS="${DOMAINS:-}"
+              export STAGING=false
+              export NEXT_IMAGE=${{ needs.docker.outputs.next_image }}:latest
+              export NGINX_IMAGE=${{ needs.docker.outputs.nginx_image }}:latest
+              docker compose pull
+              docker compose up -d --remove-orphans
+  
