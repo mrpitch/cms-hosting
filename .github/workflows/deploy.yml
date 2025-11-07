@@ -145,7 +145,13 @@ jobs:
         SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
   
       steps:
-        # 1️⃣ Upload your docker-compose.yml, nginx configs, env files, etc.
+        # 1️⃣ Debug workspace
+        - name: Debug workspace
+          run: |
+            pwd
+            ls -R .
+
+        # 2️⃣ Upload your docker-compose.yml, nginx configs, env files, etc.
         - name: Copy deployment files to server
           uses: appleboy/scp-action@v0.1.7
           with:
@@ -158,7 +164,7 @@ jobs:
               nginx/
             target: ${{ env.REMOTE_PROJECT_PATH }}
   
-        # 2️⃣ Run docker compose remotely
+        # 3️⃣ Run docker compose remotely
         - name: Deploy via SSH
           if: env.SSH_HOST != ''
           uses: appleboy/ssh-action@v1.0.3
