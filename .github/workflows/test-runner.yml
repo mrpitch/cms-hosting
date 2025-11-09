@@ -5,7 +5,7 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted,hetzner,linux,docker,mrps]  # match full label set
+    runs-on: [self-hosted]  # match full label set
     steps:
       - run: |
           echo "✅ Runner is working!"
