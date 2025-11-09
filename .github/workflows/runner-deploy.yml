@@ -85,6 +85,7 @@ jobs:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
+          envs: RUNNER_REPO,RUNNER_LABELS,RUNNER_NAME,RUNNER_REG_PAT,REMOTE_RUNNER_PATH
           script: |
             set -euo pipefail
             sudo mkdir -p "${REMOTE_RUNNER_PATH}"

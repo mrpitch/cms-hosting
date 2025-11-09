@@ -44,9 +44,11 @@ This guide covers the recommended production setup for deploying the CMS Hosting
 # SSH into your server
 ssh user@your-server
 
-# Create runner directory (owned by root)
+# Create runner directory (owned by SSH user for initial setup)
+# Note: The systemd service will run as root, but the GitHub workflow
+# needs to upload files as your SSH user, so we set ownership accordingly
 sudo mkdir -p /opt/gh-runner
-sudo chown root:root /opt/gh-runner
+sudo chown $USER:$USER /opt/gh-runner
 sudo chmod 755 /opt/gh-runner
 
 # Create application directory with dedicated user
@@ -55,6 +57,8 @@ sudo useradd -r -s /bin/bash -d /opt/cms-hosting -m deploy
 sudo chown -R deploy:deploy /opt/cms-hosting
 sudo chmod 755 /opt/cms-hosting
 ```
+
+**Note:** If you get a warning `useradd: warning: the home directory /opt/cms-hosting already exists`, that's normal and harmless - the directory was created in the previous step.
 
 ### 2. Add Deploy User to Docker Group
 
@@ -167,11 +171,14 @@ If you need to deploy without building (reusing existing images):
 ### Recommended Permissions
 
 ```bash
-# Runner configuration (contains secrets!)
-/opt/gh-runner/runner.env          root:root    600
+# Runner directory (owned by SSH user for GitHub workflow uploads)
+/opt/gh-runner/                    ssh-user:ssh-user 755
 
-# Runner script
-/opt/gh-runner/register-and-run.sh root:root    755
+# Runner configuration (created by workflow, contains secrets!)
+/opt/gh-runner/runner.env          ssh-user:ssh-user 600
+
+# Runner script (created by workflow)
+/opt/gh-runner/register-and-run.sh ssh-user:ssh-user 755
 
 # Application directory
 /opt/cms-hosting/                  deploy:deploy 755
@@ -183,9 +190,11 @@ If you need to deploy without building (reusing existing images):
 /opt/cms-hosting/docker-compose.yml deploy:deploy 644
 ```
 
+**Note:** Replace `ssh-user` with your actual SSH username (e.g., `ubuntu`, `devops`, `root`). The runner systemd service will run as root, but the directory needs to be writable by your SSH user for the GitHub workflow to upload files.
+
 ### Security Best Practices
 
-1. **Separate concerns**: Runner runs as root via systemd; application runs as `deploy` user
+1. **Separate concerns**: Runner systemd service runs as root; runner files owned by SSH user for uploads; application runs as `deploy` user
 2. **Protect secrets**: All `.env` files should be `600` (owner read/write only)
 3. **Docker socket**: The runner has access to Docker socket for building images
 4. **Firewall**: Configure UFW or iptables to only allow ports 22 (SSH), 80 (HTTP), 443 (HTTPS)
@@ -212,6 +221,47 @@ sudo ufw enable
 # Check status
 sudo ufw status verbose
 ```
+
+## Migrating from Existing Installation
+
+If you have an existing deployment in a different location (e.g., `/home/devops/cms-hosting`), you can migrate to `/opt/cms-hosting`:
+
+### Migration Steps
+
+```bash
+# 1. Stop running containers at old location
+cd /home/devops/cms-hosting  # or your current path
+docker compose down
+
+# 2. Copy everything to new location
+sudo cp -a /home/devops/cms-hosting/. /opt/cms-hosting/
+
+# 3. Fix ownership
+sudo chown -R deploy:deploy /opt/cms-hosting
+
+# 4. Test at new location
+cd /opt/cms-hosting
+docker compose up -d
+
+# 5. Verify everything works
+docker compose ps
+docker compose logs
+curl http://localhost
+
+# 6. Update GitHub secret
+# Go to: Settings → Secrets → Actions
+# Update: REMOTE_PROJECT_PATH=/opt/cms-hosting
+
+# 7. Clean up old location (only after verification!)
+sudo rm -rf /home/devops/cms-hosting
+```
+
+### Important Notes
+
+- **Docker volumes** (like `certbot-etc`, `certbot-var`) are stored separately in `/var/lib/docker/volumes/` and will work automatically
+- The `-a` flag in `cp` preserves permissions, timestamps, and directory structure
+- Always verify the new location works before deleting the old one
+- Update your `REMOTE_PROJECT_PATH` GitHub secret to the new path
 
 ## Maintenance
 
@@ -308,6 +358,26 @@ sudo systemctl restart gh-runner
 # Check Docker container
 docker ps -a | grep runner
 ```
+
+### Runner Setup: Permission Denied Error
+
+If you get `Permission denied` or `Cannot mkdir` errors when running the runner workflow:
+
+```bash
+# On your server, fix permissions for the runner directory
+sudo chown -R $USER:$USER /opt/gh-runner
+sudo chmod 755 /opt/gh-runner
+
+# Verify ownership matches your SSH user
+ls -ld /opt/gh-runner
+# Should show: drwxr-xr-x ... your-ssh-user your-ssh-user ... /opt/gh-runner
+```
+
+**Cause:** The GitHub workflow uploads files via SCP as your SSH user. If `/opt/gh-runner` is owned by `root`, the upload will fail.
+
+**Solution:** The directory should be owned by your SSH user (the value in your `SSH_USER` secret). The systemd service will still run as root, which is correct.
+
+Then re-run the workflow in GitHub Actions.
 
 ### Application Not Accessible
 
