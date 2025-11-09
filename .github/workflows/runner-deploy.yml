@@ -112,7 +112,10 @@ jobs:
             # Stop service if running (so it picks up new env vars when restarted)
             sudo systemctl stop gh-runner || true
             
-            # Create runner environment file (overwrites existing)
+            # Remove old env file to ensure clean update
+            rm -f "${REMOTE_RUNNER_PATH}/runner.env"
+            
+            # Create runner environment file with current values
             cat > "${REMOTE_RUNNER_PATH}/runner.env" << EOF
             REPO=${RUNNER_REPO}
             RUNNER_NAME=${RUNNER_NAME}
@@ -120,6 +123,10 @@ jobs:
             RUNNER_REG_PAT=${RUNNER_REG_PAT}
             EOF
             chmod 600 "${REMOTE_RUNNER_PATH}/runner.env"
+            
+            # Verify file was created with correct values
+            echo "Updated runner.env:"
+            cat "${REMOTE_RUNNER_PATH}/runner.env"
             
             # Make script executable
             chmod +x "${REMOTE_RUNNER_PATH}/register-and-run.sh"
