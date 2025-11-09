@@ -106,7 +106,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: docker/app/Dockerfile
           push: true
           tags: |
             ${{ steps.images.outputs.next_image }}:latest
@@ -120,7 +120,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: nginx
-          file: nginx/Dockerfile
+          file: docker/nginx/Dockerfile
           push: true
           tags: |
             ${{ steps.images.outputs.nginx_image }}:latest
@@ -159,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p deploy_bundle
-          cp docker-compose.yml deploy_bundle/
+          cp docker/docker-compose.yml deploy_bundle/
           
           # Generate .env from secrets
           cat > deploy_bundle/.env << EOF
@@ -238,7 +238,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p deploy_bundle
-          cp docker-compose.yml deploy_bundle/
+          cp docker/docker-compose.yml deploy_bundle/
           
           # Generate .env from secrets
           cat > deploy_bundle/.env << EOF
