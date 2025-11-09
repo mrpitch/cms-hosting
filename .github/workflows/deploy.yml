@@ -204,6 +204,18 @@ jobs:
         run: |
           set -euo pipefail
           cd "${REMOTE_PROJECT_PATH}"
+          
+          # Fix docker-compose.yml to use .env instead of ../.env
+          # (since docker-compose.yml and .env are now in the same directory)
+          sed -i 's|\.\./\.env|.env|g' docker-compose.yml
+          
+          # Verify .env file exists
+          if [ ! -f ".env" ]; then
+            echo "ERROR: .env file not found in ${REMOTE_PROJECT_PATH}"
+            ls -la
+            exit 1
+          fi
+          
           export DOMAIN="${DOMAIN:-}"
           export SSL_EMAIL="${SSL_EMAIL:-}"
           export DOMAINS="${DOMAINS:-}"
@@ -294,6 +306,18 @@ jobs:
         run: |
           set -euo pipefail
           cd "${REMOTE_PROJECT_PATH}"
+          
+          # Fix docker-compose.yml to use .env instead of ../.env
+          # (since docker-compose.yml and .env are now in the same directory)
+          sed -i 's|\.\./\.env|.env|g' docker-compose.yml
+          
+          # Verify .env file exists
+          if [ ! -f ".env" ]; then
+            echo "ERROR: .env file not found in ${REMOTE_PROJECT_PATH}"
+            ls -la
+            exit 1
+          fi
+          
           export DOMAIN="${DOMAIN:-}"
           export SSL_EMAIL="${SSL_EMAIL:-}"
           export DOMAINS="${DOMAINS:-}"
