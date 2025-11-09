@@ -128,9 +128,6 @@ In your GitHub repository, go to **Settings → Secrets and variables → Action
 
 | Secret Name | Description | Example |
 |-------------|-------------|---------|
-| `SSH_HOST` | Server IP or hostname | `116.203.123.456` |
-| `SSH_USER` | SSH username | `devops` or `ubuntu` |
-| `SSH_KEY` | Private SSH key | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
 | `REMOTE_RUNNER_PATH` | Runner installation path | `/home/devops/gh-runner` |
 | `REMOTE_PROJECT_PATH` | Application deployment path | `/home/devops/cms-hosting` |
 | `RUNNER_REPO` | GitHub repository | `owner/repo` |
@@ -141,6 +138,8 @@ In your GitHub repository, go to **Settings → Secrets and variables → Action
 | `DOMAINS` | All domains (comma-separated) | `example.com,www.example.com` |
 | `SSL_EMAIL` | Email for Let's Encrypt | `admin@example.com` |
 
+**Note:** Since the runner is on the same server, we no longer need SSH secrets (`SSH_HOST`, `SSH_USER`, `SSH_KEY`) for deployment. The workflow uses direct file operations instead.
+
 #### Creating the Personal Access Token (PAT)
 
 1. Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
@@ -149,19 +148,6 @@ In your GitHub repository, go to **Settings → Secrets and variables → Action
    - `admin:repo_hook` (Full control of repository hooks)
    - `workflow` (Update GitHub Action workflows)
 3. Copy the token and save it as `RUNNER_REG_PAT` secret
-
-### 3. Generate SSH Key Pair (if needed)
-
-```bash
-# On your local machine
-ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/github_deploy
-
-# Copy public key to server
-ssh-copy-id -i ~/.ssh/github_deploy.pub user@your-server
-
-# Add private key to GitHub Secrets as SSH_KEY
-cat ~/.ssh/github_deploy
-```
 
 ## Deploying the Runner
 
@@ -208,7 +194,12 @@ The workflow will:
 1. Run linting and build checks
 2. Build Docker images (Next.js app and Nginx)
 3. Push images to GitHub Container Registry (GHCR)
-4. Deploy to your server at `/home/devops/cms-hosting`
+4. **Deploy directly on the server** (no SSH needed!):
+   - Copy deployment files to `/home/devops/cms-hosting`
+   - Run `docker compose` commands directly
+   - Update containers with new images
+
+**Key Advantage:** Since the runner is on the same server, deployment uses direct file operations instead of SSH, making it faster and more reliable.
 
 ### Manual Deployment
 
@@ -217,6 +208,8 @@ If you need to deploy without building (reusing existing images):
 1. Go to **Actions** → **CI/CD (v1)** → **Run workflow**
 2. Set `deploy_only` to `true`
 3. Click **Run workflow**
+
+This will skip the build steps and directly deploy using the latest published images.
 
 ## File Permissions and Security
 
@@ -527,10 +520,21 @@ This production setup provides:
 - ✅ No sudo needed for deployments or file operations
 - ✅ Minimal sudo requirements (only for runner's systemd service)
 - ✅ Single user owns everything - no permission complexity
+- ✅ **No SSH needed for deployment** - runner is on the same server
+- ✅ **Direct file operations** - faster and more reliable than SSH
 - ✅ Easy to manage, backup, and scale
 - ✅ Automated deployment via GitHub Actions
 - ✅ Persistent data handling via Docker volumes
 - ✅ SSL certificate automation
+
+### Deployment Architecture
+
+The deployment workflow is simplified because:
+- **Runner and application are on the same server** - no network overhead
+- **Direct file operations** - `cp` commands instead of SCP
+- **Direct Docker commands** - no SSH connection needed
+- **Faster execution** - no SSH handshake or network latency
+- **More reliable** - fewer failure points (no SSH connection issues)
 
 For questions or issues, check the GitHub repository or open an issue.
 
