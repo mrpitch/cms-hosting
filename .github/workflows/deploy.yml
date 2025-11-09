@@ -31,7 +31,7 @@ env:
 
 jobs:
   lint-build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     if: >
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
@@ -74,7 +74,7 @@ jobs:
 
   docker:
     needs: lint-build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     if: >
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
@@ -119,8 +119,8 @@ jobs:
       - name: Build & push Nginx image
         uses: docker/build-push-action@v6
         with:
-          context: nginx
-          file: docker/nginx/Dockerfile
+          context: docker/nginx
+          file: Dockerfile
           push: true
           tags: |
             ${{ steps.images.outputs.nginx_image }}:latest
@@ -132,7 +132,7 @@ jobs:
 
   deploy:
     needs: docker
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     if: >
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
@@ -174,8 +174,8 @@ jobs:
           NGINX_IMAGE=${NGINX_IMAGE}
           EOF
           
-          cp -R nginx deploy_bundle/
-          cp -R certbot deploy_bundle/
+          cp -R docker/nginx deploy_bundle/nginx
+          cp -R docker/certbot deploy_bundle/certbot
 
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
@@ -208,7 +208,7 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' &&
       inputs.deploy_only == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, hetzner]
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
@@ -253,8 +253,8 @@ jobs:
           NGINX_IMAGE=${NGINX_IMAGE}
           EOF
           
-          cp -R nginx deploy_bundle/
-          cp -R certbot deploy_bundle/
+          cp -R docker/nginx deploy_bundle/nginx
+          cp -R docker/certbot deploy_bundle/certbot
 
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
