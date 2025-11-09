@@ -110,7 +110,7 @@ jobs:
             mkdir -p "${REMOTE_RUNNER_PATH}"
             
             # Create runner environment file
-            cat > "${REMOTE_RUNNER_PATH}/runner.env" << 'EOF'
+            cat > "${REMOTE_RUNNER_PATH}/runner.env" << EOF
             REPO=${RUNNER_REPO}
             RUNNER_NAME=${RUNNER_NAME}
             RUNNER_LABELS=${RUNNER_LABELS}
