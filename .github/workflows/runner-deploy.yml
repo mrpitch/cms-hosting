@@ -71,7 +71,7 @@ jobs:
           key: ${{ env.SSH_KEY }}
           source: docker/runner/
           target: ${{ env.REMOTE_RUNNER_PATH }}
-          strip_components: 1
+          strip_components: 2
 
       - name: Write env & install systemd unit
         uses: appleboy/ssh-action@v1.0.3
