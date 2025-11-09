@@ -55,25 +55,72 @@ chmod 755 ~/gh-runner ~/cms-hosting
 
 ### Configure Minimal Sudo Access
 
-The runner needs sudo only for systemd operations. Configure passwordless sudo for these specific commands:
+The devops user needs sudo for two purposes:
+1. **Systemd operations** - Managing the runner service
+2. **Package management** - Installing Docker, jq, curl, and dependencies
+
+Configure passwordless sudo for these specific commands only:
+
+#### 1. Runner Systemd Permissions
 
 ```bash
-# Create restricted sudoers file for devops user
+# Create restricted sudoers file for runner systemd operations
 echo "devops ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/gh-runner.service" | sudo tee /etc/sudoers.d/devops-runner
 echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload" | sudo tee -a /etc/sudoers.d/devops-runner
 echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl * gh-runner" | sudo tee -a /etc/sudoers.d/devops-runner
 
 # Set correct permissions
 sudo chmod 0440 /etc/sudoers.d/devops-runner
+```
 
-# Verify syntax
+#### 2. Package Management Permissions
+
+```bash
+# Create sudoers file for package management (Docker, jq, curl installation)
+sudo tee /etc/sudoers.d/devops-packages << 'EOF'
+# Allow apt-get update
+devops ALL=(ALL) NOPASSWD: /usr/bin/apt-get update
+
+# Allow installing specific package combinations
+devops ALL=(ALL) NOPASSWD: /usr/bin/apt-get install -y ca-certificates curl gnupg
+devops ALL=(ALL) NOPASSWD: /usr/bin/apt-get install -y jq
+devops ALL=(ALL) NOPASSWD: /usr/bin/apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Allow Docker setup commands
+devops ALL=(ALL) NOPASSWD: /usr/bin/install -m 0755 -d /etc/apt/keyrings
+devops ALL=(ALL) NOPASSWD: /usr/bin/gpg --dearmor
+devops ALL=(ALL) NOPASSWD: /usr/sbin/usermod -aG docker *
+
+# Allow Docker service management
+devops ALL=(ALL) NOPASSWD: /bin/systemctl start docker
+devops ALL=(ALL) NOPASSWD: /bin/systemctl status docker
+EOF
+
+# Set correct permissions
+sudo chmod 0440 /etc/sudoers.d/devops-packages
+```
+
+#### 3. Verify Configuration
+
+```bash
+# Verify syntax is correct (IMPORTANT!)
 sudo visudo -c
 
-# Test (should not ask for password)
+# Should output:
+# /etc/sudoers.d/devops-runner: parsed OK
+# /etc/sudoers.d/devops-packages: parsed OK
+
+# Test permissions (as devops user)
+sudo -l
+
+# Test specific commands (should not ask for password)
 sudo systemctl status gh-runner || echo "Service not yet created - this is expected"
+sudo apt-get update
 ```
 
 **Replace `devops`** with your actual SSH username if different.
+
+**Security Note:** These permissions follow the principle of least privilege - only specific commands are allowed, not full root access. The devops user cannot run arbitrary sudo commands.
 
 ### 2. Configure GitHub Secrets
 
@@ -369,19 +416,21 @@ docker ps -a | grep runner
 
 If you get `sudo: a password is required` error when running the runner workflow:
 
-**Cause:** Your SSH user doesn't have passwordless sudo configured for systemd operations.
+**Cause:** Your SSH user doesn't have passwordless sudo configured for required operations.
 
-**Solution:** Configure minimal passwordless sudo:
+**Solution:** Follow the "Configure Minimal Sudo Access" section in the Initial Server Setup. You need both:
+1. **Runner systemd permissions** (`/etc/sudoers.d/devops-runner`)
+2. **Package management permissions** (`/etc/sudoers.d/devops-packages`)
 
+Quick check:
 ```bash
-# On your server
-echo "devops ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/gh-runner.service" | sudo tee /etc/sudoers.d/devops-runner
-echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload" | sudo tee -a /etc/sudoers.d/devops-runner
-echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl * gh-runner" | sudo tee -a /etc/sudoers.d/devops-runner
-sudo chmod 0440 /etc/sudoers.d/devops-runner
-sudo visudo -c
+# Verify both files exist
+sudo ls -la /etc/sudoers.d/devops-*
 
-# Replace 'devops' with your SSH_USER value
+# Check your sudo permissions
+sudo -l
+
+# If files are missing, follow the setup instructions in "Configure Minimal Sudo Access"
 ```
 
 Then re-run the workflow in GitHub Actions.
