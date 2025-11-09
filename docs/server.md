@@ -7,7 +7,7 @@ This guide covers the recommended production setup for deploying the CMS Hosting
 ### Overview
 
 ```
-/opt/
+/home/devops/
 ├── gh-runner/                    # GitHub Actions runner installation
 │   ├── runner.env                # Runner configuration (secrets)
 │   └── register-and-run.sh       # Runner bootstrap script
@@ -17,17 +17,18 @@ This guide covers the recommended production setup for deploying the CMS Hosting
     ├── .env                      # Application environment (secrets)
     ├── nginx/                    # Nginx reverse proxy files
     ├── certbot/                  # SSL certificate management
-    └── data/                     # Persistent application data
+    └── data/                     # Persistent application data (optional)
         ├── uploads/              # User-uploaded files (if needed)
         └── backups/              # Application backups
 ```
 
 ### Why This Structure?
 
-- **`/opt/gh-runner`**: Standard Linux location for optional third-party software. The runner is a system service that needs to be isolated from user data.
-- **`/opt/cms-hosting`**: Your application lives here, separate from system files and easy to manage.
-- **Clear separation**: Runner (system service) vs. Application (user service) are cleanly separated.
-- **Follows FHS**: Adheres to the [Filesystem Hierarchy Standard](https://en.wikipedia.org/wiki/Filesystem_Hierarchy_Standard).
+- **Everything in `/home/devops`**: Both runner and application live in the user's home directory for maximum simplicity.
+- **No sudo needed** for file operations: User already owns everything in their home directory.
+- **Minimal sudo requirements**: Only needed for systemd service management (runner), not for deployments or file operations.
+- **Simpler permissions**: One user owns everything, no need for a dedicated deploy user.
+- **Easy backups**: Everything important is in one location.
 
 ## Initial Server Setup
 
@@ -44,43 +45,47 @@ This guide covers the recommended production setup for deploying the CMS Hosting
 # SSH into your server
 ssh user@your-server
 
-# Create runner directory (owned by SSH user for initial setup)
-# Note: The systemd service will run as root, but the GitHub workflow
-# needs to upload files as your SSH user, so we set ownership accordingly
-sudo mkdir -p /opt/gh-runner
-sudo chown $USER:$USER /opt/gh-runner
-sudo chmod 755 /opt/gh-runner
-
-# Create application directory with dedicated user
-sudo mkdir -p /opt/cms-hosting
-sudo useradd -r -s /bin/bash -d /opt/cms-hosting -m deploy
-sudo chown -R deploy:deploy /opt/cms-hosting
-sudo chmod 755 /opt/cms-hosting
+# Create directories in home (no sudo needed!)
+mkdir -p ~/gh-runner
+mkdir -p ~/cms-hosting
+chmod 755 ~/gh-runner ~/cms-hosting
 ```
 
-**Note:** If you get a warning `useradd: warning: the home directory /opt/cms-hosting already exists`, that's normal and harmless - the directory was created in the previous step.
+**Note:** All directories are created in your home directory, so you naturally own them. No sudo required!
 
-### 2. Add Deploy User to Docker Group
+### Configure Minimal Sudo Access
+
+The runner needs sudo only for systemd operations. Configure passwordless sudo for these specific commands:
 
 ```bash
-# Allow the deploy user to run Docker commands
-sudo usermod -aG docker deploy
+# Create restricted sudoers file for devops user
+echo "devops ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/gh-runner.service" | sudo tee /etc/sudoers.d/devops-runner
+echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload" | sudo tee -a /etc/sudoers.d/devops-runner
+echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl * gh-runner" | sudo tee -a /etc/sudoers.d/devops-runner
 
-# Verify
-sudo -u deploy docker ps
+# Set correct permissions
+sudo chmod 0440 /etc/sudoers.d/devops-runner
+
+# Verify syntax
+sudo visudo -c
+
+# Test (should not ask for password)
+sudo systemctl status gh-runner || echo "Service not yet created - this is expected"
 ```
 
-### 3. Configure GitHub Secrets
+**Replace `devops`** with your actual SSH username if different.
+
+### 2. Configure GitHub Secrets
 
 In your GitHub repository, go to **Settings → Secrets and variables → Actions** and add:
 
 | Secret Name | Description | Example |
 |-------------|-------------|---------|
 | `SSH_HOST` | Server IP or hostname | `116.203.123.456` |
-| `SSH_USER` | SSH username | `root` or `ubuntu` |
+| `SSH_USER` | SSH username | `devops` or `ubuntu` |
 | `SSH_KEY` | Private SSH key | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
-| `REMOTE_RUNNER_PATH` | Runner installation path | `/opt/gh-runner` |
-| `REMOTE_PROJECT_PATH` | Application deployment path | `/opt/cms-hosting` |
+| `REMOTE_RUNNER_PATH` | Runner installation path | `/home/devops/gh-runner` |
+| `REMOTE_PROJECT_PATH` | Application deployment path | `/home/devops/cms-hosting` |
 | `RUNNER_REPO` | GitHub repository | `owner/repo` |
 | `RUNNER_NAME` | Unique runner name | `hetzner-cms-runner` |
 | `RUNNER_LABELS` | Runner labels (comma-separated) | `self-hosted,hetzner,linux,docker` |
@@ -98,7 +103,7 @@ In your GitHub repository, go to **Settings → Secrets and variables → Action
    - `workflow` (Update GitHub Action workflows)
 3. Copy the token and save it as `RUNNER_REG_PAT` secret
 
-### 4. Generate SSH Key Pair (if needed)
+### 3. Generate SSH Key Pair (if needed)
 
 ```bash
 # On your local machine
@@ -123,7 +128,7 @@ cat ~/.ssh/github_deploy
 
 This will:
 - Install Docker (if not present)
-- Upload runner scripts to `/opt/gh-runner`
+- Upload runner scripts to `/home/devops/gh-runner` (or your SSH user's home)
 - Create and start the `gh-runner.service` systemd service
 - Register the runner with GitHub
 
@@ -156,7 +161,7 @@ The workflow will:
 1. Run linting and build checks
 2. Build Docker images (Next.js app and Nginx)
 3. Push images to GitHub Container Registry (GHCR)
-4. Deploy to your server at `/opt/cms-hosting`
+4. Deploy to your server at `/home/devops/cms-hosting`
 
 ### Manual Deployment
 
@@ -171,31 +176,24 @@ If you need to deploy without building (reusing existing images):
 ### Recommended Permissions
 
 ```bash
-# Runner directory (owned by SSH user for GitHub workflow uploads)
-/opt/gh-runner/                    ssh-user:ssh-user 755
-
-# Runner configuration (created by workflow, contains secrets!)
-/opt/gh-runner/runner.env          ssh-user:ssh-user 600
-
-# Runner script (created by workflow)
-/opt/gh-runner/register-and-run.sh ssh-user:ssh-user 755
+# Runner directory
+/home/devops/gh-runner/                      devops:devops 755
+/home/devops/gh-runner/runner.env            devops:devops 600  # Contains secrets!
+/home/devops/gh-runner/register-and-run.sh   devops:devops 755
 
 # Application directory
-/opt/cms-hosting/                  deploy:deploy 755
-
-# Application configuration (contains secrets!)
-/opt/cms-hosting/.env              deploy:deploy 600
-
-# Docker Compose file
-/opt/cms-hosting/docker-compose.yml deploy:deploy 644
+/home/devops/cms-hosting/                    devops:devops 755
+/home/devops/cms-hosting/.env                devops:devops 600  # Contains secrets!
+/home/devops/cms-hosting/docker-compose.yml  devops:devops 644
 ```
 
-**Note:** Replace `ssh-user` with your actual SSH username (e.g., `ubuntu`, `devops`, `root`). The runner systemd service will run as root, but the directory needs to be writable by your SSH user for the GitHub workflow to upload files.
+**Note:** Replace `devops` with your actual SSH username (e.g., `ubuntu`, `admin`). Everything lives in your home directory, so you naturally own it all. No permission issues!
 
 ### Security Best Practices
 
-1. **Separate concerns**: Runner systemd service runs as root; runner files owned by SSH user for uploads; application runs as `deploy` user
-2. **Protect secrets**: All `.env` files should be `600` (owner read/write only)
+1. **Minimal sudo**: Only needed for systemd operations (runner service management), not for any file operations or deployments
+2. **Single user ownership**: One user owns everything, simplifying permissions and reducing complexity
+3. **Protect secrets**: All `.env` files should be `600` (owner read/write only)
 3. **Docker socket**: The runner has access to Docker socket for building images
 4. **Firewall**: Configure UFW or iptables to only allow ports 22 (SSH), 80 (HTTP), 443 (HTTPS)
 5. **SSH hardening**: 
@@ -222,25 +220,28 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-## Migrating from Existing Installation
+## Migrating from /opt to Home Directory
 
-If you have an existing deployment in a different location (e.g., `/home/devops/cms-hosting`), you can migrate to `/opt/cms-hosting`:
+If you have an existing deployment in `/opt/cms-hosting` and want to move it to `/home/devops/cms-hosting` for simpler permissions:
 
 ### Migration Steps
 
 ```bash
 # 1. Stop running containers at old location
-cd /home/devops/cms-hosting  # or your current path
+cd /opt/cms-hosting
 docker compose down
 
-# 2. Copy everything to new location
-sudo cp -a /home/devops/cms-hosting/. /opt/cms-hosting/
+# 2. Copy everything to home directory (use Docker to avoid sudo!)
+docker run --rm \
+  -v /opt/cms-hosting:/source:ro \
+  -v /home/devops:/target \
+  alpine cp -a /source /target/cms-hosting
 
-# 3. Fix ownership
-sudo chown -R deploy:deploy /opt/cms-hosting
+# 3. Take ownership (no sudo needed in your home!)
+chown -R devops:devops ~/cms-hosting
 
 # 4. Test at new location
-cd /opt/cms-hosting
+cd ~/cms-hosting
 docker compose up -d
 
 # 5. Verify everything works
@@ -250,16 +251,18 @@ curl http://localhost
 
 # 6. Update GitHub secret
 # Go to: Settings → Secrets → Actions
-# Update: REMOTE_PROJECT_PATH=/opt/cms-hosting
+# Update: REMOTE_PROJECT_PATH=/home/devops/cms-hosting
 
 # 7. Clean up old location (only after verification!)
-sudo rm -rf /home/devops/cms-hosting
+# You'll need sudo or root access to remove /opt/cms-hosting
+sudo rm -rf /opt/cms-hosting
+sudo userdel -r deploy  # Remove deploy user if no longer needed
 ```
 
 ### Important Notes
 
 - **Docker volumes** (like `certbot-etc`, `certbot-var`) are stored separately in `/var/lib/docker/volumes/` and will work automatically
-- The `-a` flag in `cp` preserves permissions, timestamps, and directory structure
+- No configuration changes needed in `docker-compose.yml` - all paths are relative
 - Always verify the new location works before deleting the old one
 - Update your `REMOTE_PROJECT_PATH` GitHub secret to the new path
 
@@ -272,7 +275,7 @@ sudo rm -rf /home/devops/cms-hosting
 ssh user@your-server
 
 # View all service logs
-cd /opt/cms-hosting
+cd ~/cms-hosting
 docker compose logs -f
 
 # View specific service
@@ -285,7 +288,7 @@ docker compose logs -f certbot
 
 ```bash
 # Restart application
-cd /opt/cms-hosting
+cd ~/cms-hosting
 docker compose restart
 
 # Restart specific service
@@ -306,22 +309,25 @@ Push changes to `main` branch or manually trigger the workflow. The deployment w
 ### Backup Strategy
 
 ```bash
-# Backup application configuration
-sudo tar -czf /opt/backups/cms-hosting-config-$(date +%Y%m%d).tar.gz \
-  /opt/cms-hosting/docker-compose.yml \
-  /opt/cms-hosting/.env \
-  /opt/cms-hosting/nginx \
-  /opt/cms-hosting/certbot
+# Create backup directory
+mkdir -p ~/backups
+
+# Backup application configuration (no sudo needed!)
+tar -czf ~/backups/cms-hosting-config-$(date +%Y%m%d).tar.gz \
+  ~/cms-hosting/docker-compose.yml \
+  ~/cms-hosting/.env \
+  ~/cms-hosting/nginx \
+  ~/cms-hosting/certbot
 
 # Backup Docker volumes
 docker run --rm \
   -v certbot-etc:/data \
-  -v /opt/backups:/backup \
+  -v ~/backups:/backup \
   alpine tar -czf /backup/certbot-$(date +%Y%m%d).tar.gz -C /data .
 
 # Backup application data (if using bind mounts)
-sudo tar -czf /opt/backups/cms-hosting-data-$(date +%Y%m%d).tar.gz \
-  /opt/cms-hosting/data
+tar -czf ~/backups/cms-hosting-data-$(date +%Y%m%d).tar.gz \
+  ~/cms-hosting/data 2>/dev/null || echo "No data directory"
 ```
 
 ### Monitoring
@@ -359,23 +365,24 @@ sudo systemctl restart gh-runner
 docker ps -a | grep runner
 ```
 
-### Runner Setup: Permission Denied Error
+### Runner Setup: Sudo Password Required Error
 
-If you get `Permission denied` or `Cannot mkdir` errors when running the runner workflow:
+If you get `sudo: a password is required` error when running the runner workflow:
+
+**Cause:** Your SSH user doesn't have passwordless sudo configured for systemd operations.
+
+**Solution:** Configure minimal passwordless sudo:
 
 ```bash
-# On your server, fix permissions for the runner directory
-sudo chown -R $USER:$USER /opt/gh-runner
-sudo chmod 755 /opt/gh-runner
+# On your server
+echo "devops ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/gh-runner.service" | sudo tee /etc/sudoers.d/devops-runner
+echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload" | sudo tee -a /etc/sudoers.d/devops-runner
+echo "devops ALL=(ALL) NOPASSWD: /bin/systemctl * gh-runner" | sudo tee -a /etc/sudoers.d/devops-runner
+sudo chmod 0440 /etc/sudoers.d/devops-runner
+sudo visudo -c
 
-# Verify ownership matches your SSH user
-ls -ld /opt/gh-runner
-# Should show: drwxr-xr-x ... your-ssh-user your-ssh-user ... /opt/gh-runner
+# Replace 'devops' with your SSH_USER value
 ```
-
-**Cause:** The GitHub workflow uploads files via SCP as your SSH user. If `/opt/gh-runner` is owned by `root`, the upload will fail.
-
-**Solution:** The directory should be owned by your SSH user (the value in your `SSH_USER` secret). The systemd service will still run as root, which is correct.
 
 Then re-run the workflow in GitHub Actions.
 
@@ -383,7 +390,7 @@ Then re-run the workflow in GitHub Actions.
 
 ```bash
 # Check if containers are running
-cd /opt/cms-hosting
+cd ~/cms-hosting
 docker compose ps
 
 # Check Nginx logs
@@ -434,7 +441,7 @@ If a deployment fails:
 ```bash
 # SSH into server
 ssh user@your-server
-cd /opt/cms-hosting
+cd ~/cms-hosting
 
 # Pull previous image version
 docker pull ghcr.io/your-org/cms-hosting-next:PREVIOUS_SHA
@@ -450,29 +457,30 @@ docker compose up -d
 
 ## Alternative Locations (Reference)
 
-If `/opt/` doesn't suit your setup, consider:
+If you prefer a different location than `/home/devops`, consider:
+
+### `/opt/cms-hosting`
+- **Purpose**: Standard Linux location for optional third-party software
+- **Best for**: Professional/enterprise setups, multi-tenant servers
+- **Pros**: Follows FHS standards, clear separation from user data
+- **Cons**: Requires dedicated user or sudo for deployments
 
 ### `/srv/cms-hosting`
 - **Purpose**: FHS standard for "site-specific data"
 - **Best for**: Web services, HTTP-served content
 - **Pros**: Semantically correct for web apps
-- **Cons**: Less common in practice
-
-### `/home/deploy/cms-hosting`
-- **Purpose**: User-based deployment
-- **Best for**: Single-user servers, simpler setups
-- **Pros**: Easy permissions, no sudo needed
-- **Cons**: Mixes deployment with user home directory
+- **Cons**: Less common in practice, similar sudo requirements as /opt
 
 ## Summary
 
 This production setup provides:
-- ✅ Professional directory structure following Linux standards
-- ✅ Clear separation between runner and application
-- ✅ Proper security boundaries and permissions
+- ✅ Everything in user's home directory for maximum simplicity
+- ✅ No sudo needed for deployments or file operations
+- ✅ Minimal sudo requirements (only for runner's systemd service)
+- ✅ Single user owns everything - no permission complexity
 - ✅ Easy to manage, backup, and scale
 - ✅ Automated deployment via GitHub Actions
-- ✅ Persistent data handling
+- ✅ Persistent data handling via Docker volumes
 - ✅ SSL certificate automation
 
 For questions or issues, check the GitHub repository or open an issue.
