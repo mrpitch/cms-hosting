@@ -134,9 +134,6 @@ jobs:
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
     env:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
       REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
       DOMAIN: ${{ secrets.DOMAIN }}
       DOMAINS: ${{ secrets.DOMAINS }}
@@ -147,16 +144,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug workspace
-        run: |
-          pwd
-          ls -R "${{ github.workspace }}"
-
       - name: Prepare deployment bundle
         run: |
           set -euo pipefail
           
-          # Debug: Check current directory and what exists
           echo "Current directory: $(pwd)"
           echo "Checking docker directory:"
           ls -la docker/ || echo "docker/ directory not found!"
@@ -201,71 +192,25 @@ jobs:
           echo "Deploy bundle size:"
           du -sh deploy_bundle/
 
-      - name: Verify deployment bundle
-        run: |
-          set -euo pipefail
-          if [ ! -d "deploy_bundle" ]; then
-            echo "ERROR: deploy_bundle directory does not exist!"
-            exit 1
-          fi
-          if [ -z "$(ls -A deploy_bundle)" ]; then
-            echo "ERROR: deploy_bundle directory is empty!"
-            exit 1
-          fi
-          echo "Deploy bundle verified:"
-          ls -R deploy_bundle/
-          echo "Absolute path:"
-          echo "$(pwd)/deploy_bundle"
-          echo "File count:"
-          find deploy_bundle -type f | wc -l
-
-      - name: Create deployment archive
-        run: |
-          set -euo pipefail
-          cd deploy_bundle
-          tar -czf ../deploy_bundle.tar.gz .
-          cd ..
-          ls -lh deploy_bundle.tar.gz
-
       - name: Copy deployment files to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          source: "deploy_bundle.tar.gz"
-          target: ${{ env.REMOTE_PROJECT_PATH }}
-          strip_components: 0
+        run: |
+          set -euo pipefail
+          mkdir -p "${REMOTE_PROJECT_PATH}"
+          cp -r deploy_bundle/* "${REMOTE_PROJECT_PATH}/"
+          echo "Files copied to ${REMOTE_PROJECT_PATH}"
+          ls -la "${REMOTE_PROJECT_PATH}"
 
-      - name: Extract deployment files on server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          script: |
-            set -euo pipefail
-            cd "${REMOTE_PROJECT_PATH}"
-            tar -xzf deploy_bundle.tar.gz
-            rm deploy_bundle.tar.gz
-            ls -la
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,NEXT_IMAGE,NGINX_IMAGE
-          script: |
-            set -euo pipefail
-            cd "${REMOTE_PROJECT_PATH}"
-            export DOMAIN="${DOMAIN:-}"
-            export SSL_EMAIL="${SSL_EMAIL:-}"
-            export DOMAINS="${DOMAINS:-}"
-            docker compose pull
-            docker compose down --remove-orphans
-            docker compose up -d
+      - name: Deploy application
+        run: |
+          set -euo pipefail
+          cd "${REMOTE_PROJECT_PATH}"
+          export DOMAIN="${DOMAIN:-}"
+          export SSL_EMAIL="${SSL_EMAIL:-}"
+          export DOMAINS="${DOMAINS:-}"
+          docker compose pull
+          docker compose down --remove-orphans
+          docker compose up -d
+          echo "Deployment completed successfully"
 
   manual-deploy:
     if: >
@@ -273,9 +218,6 @@ jobs:
       inputs.deploy_only == 'true'
     runs-on: [self-hosted]
     env:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
       REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
       DOMAIN: ${{ secrets.DOMAIN }}
       DOMAINS: ${{ secrets.DOMAINS }}
@@ -283,11 +225,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Debug workspace
-        run: |
-          pwd
-          ls -R "${{ github.workspace }}"
 
       - name: Determine image tags
         id: manual_images
@@ -301,7 +238,6 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Debug: Check current directory and what exists
           echo "Current directory: $(pwd)"
           echo "Checking docker directory:"
           ls -la docker/ || echo "docker/ directory not found!"
@@ -333,8 +269,8 @@ jobs:
           DOMAIN=${DOMAIN}
           DOMAINS=${DOMAINS}
           SSL_EMAIL=${SSL_EMAIL}
-          NEXT_IMAGE=${NEXT_IMAGE}
-          NGINX_IMAGE=${NGINX_IMAGE}
+          NEXT_IMAGE=${MANUAL_NEXT_IMAGE}
+          NGINX_IMAGE=${MANUAL_NGINX_IMAGE}
           EOF
           
           cp -R docker/nginx deploy_bundle/nginx
@@ -346,73 +282,27 @@ jobs:
           echo "Deploy bundle size:"
           du -sh deploy_bundle/
 
-      - name: Verify deployment bundle
-        run: |
-          set -euo pipefail
-          if [ ! -d "deploy_bundle" ]; then
-            echo "ERROR: deploy_bundle directory does not exist!"
-            exit 1
-          fi
-          if [ -z "$(ls -A deploy_bundle)" ]; then
-            echo "ERROR: deploy_bundle directory is empty!"
-            exit 1
-          fi
-          echo "Deploy bundle verified:"
-          ls -R deploy_bundle/
-          echo "Absolute path:"
-          echo "$(pwd)/deploy_bundle"
-          echo "File count:"
-          find deploy_bundle -type f | wc -l
-
-      - name: Create deployment archive
-        run: |
-          set -euo pipefail
-          cd deploy_bundle
-          tar -czf ../deploy_bundle.tar.gz .
-          cd ..
-          ls -lh deploy_bundle.tar.gz
-
       - name: Copy deployment files to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          source: "deploy_bundle.tar.gz"
-          target: ${{ env.REMOTE_PROJECT_PATH }}
-          strip_components: 0
+        run: |
+          set -euo pipefail
+          mkdir -p "${REMOTE_PROJECT_PATH}"
+          cp -r deploy_bundle/* "${REMOTE_PROJECT_PATH}/"
+          echo "Files copied to ${REMOTE_PROJECT_PATH}"
+          ls -la "${REMOTE_PROJECT_PATH}"
 
-      - name: Extract deployment files on server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          script: |
-            set -euo pipefail
-            cd "${REMOTE_PROJECT_PATH}"
-            tar -xzf deploy_bundle.tar.gz
-            rm deploy_bundle.tar.gz
-            ls -la
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Deploy application
+        run: |
+          set -euo pipefail
+          cd "${REMOTE_PROJECT_PATH}"
+          export DOMAIN="${DOMAIN:-}"
+          export SSL_EMAIL="${SSL_EMAIL:-}"
+          export DOMAINS="${DOMAINS:-}"
+          export NEXT_IMAGE="${MANUAL_NEXT_IMAGE}"
+          export NGINX_IMAGE="${MANUAL_NGINX_IMAGE}"
+          docker compose pull
+          docker compose down --remove-orphans
+          docker compose up -d
+          echo "Deployment completed successfully"
         env:
           MANUAL_NEXT_IMAGE: ${{ steps.manual_images.outputs.next_image }}
           MANUAL_NGINX_IMAGE: ${{ steps.manual_images.outputs.nginx_image }}
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,MANUAL_NEXT_IMAGE,MANUAL_NGINX_IMAGE
-          script: |
-            set -euo pipefail
-            cd "${REMOTE_PROJECT_PATH}"
-            export DOMAIN="${DOMAIN:-}"
-            export SSL_EMAIL="${SSL_EMAIL:-}"
-            export DOMAINS="${DOMAINS:-}"
-            export NEXT_IMAGE="${MANUAL_NEXT_IMAGE}"
-            export NGINX_IMAGE="${MANUAL_NGINX_IMAGE}"
-            docker compose pull
-            docker compose down --remove-orphans
-            docker compose up -d
