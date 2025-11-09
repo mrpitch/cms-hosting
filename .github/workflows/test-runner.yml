@@ -1,0 +1,14 @@
+name: Test Hetzner Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: [self-hosted,hetzner,linux,docker,mrps]  # match full label set
+    steps:
+      - run: |
+          echo "✅ Runner is working!"
+          hostname
+          uname -a
+          docker --version
