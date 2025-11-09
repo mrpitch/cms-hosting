@@ -13,7 +13,7 @@ fi
 : "${RUNNER_REG_PAT:?RUNNER_REG_PAT not set}"
 
 API="https://api.github.com/repos/${REPO}/actions/runners/registration-token"
-IMAGE="ghcr.io/actions/runner:latest"   # official container
+IMAGE="myoung34/github-runner:latest"   # coommunity maintained https://github.com/myoung34/docker-github-actions-runner
 WORKDIR="/runner/_work"
 
 fetch_token() {
