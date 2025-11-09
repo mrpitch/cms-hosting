@@ -1,9 +1,6 @@
 name: CI/CD (v1)
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -222,15 +219,36 @@ jobs:
           echo "File count:"
           find deploy_bundle -type f | wc -l
 
+      - name: Create deployment archive
+        run: |
+          set -euo pipefail
+          cd deploy_bundle
+          tar -czf ../deploy_bundle.tar.gz .
+          cd ..
+          ls -lh deploy_bundle.tar.gz
+
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
-          source: "deploy_bundle/."
+          source: "deploy_bundle.tar.gz"
           target: ${{ env.REMOTE_PROJECT_PATH }}
-          strip_components: 1
+          strip_components: 0
+
+      - name: Extract deployment files on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd "${REMOTE_PROJECT_PATH}"
+            tar -xzf deploy_bundle.tar.gz
+            rm deploy_bundle.tar.gz
+            ls -la
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -346,15 +364,36 @@ jobs:
           echo "File count:"
           find deploy_bundle -type f | wc -l
 
+      - name: Create deployment archive
+        run: |
+          set -euo pipefail
+          cd deploy_bundle
+          tar -czf ../deploy_bundle.tar.gz .
+          cd ..
+          ls -lh deploy_bundle.tar.gz
+
       - name: Copy deployment files to server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_KEY }}
-          source: "deploy_bundle/."
+          source: "deploy_bundle.tar.gz"
           target: ${{ env.REMOTE_PROJECT_PATH }}
-          strip_components: 1
+          strip_components: 0
+
+      - name: Extract deployment files on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd "${REMOTE_PROJECT_PATH}"
+            tar -xzf deploy_bundle.tar.gz
+            rm deploy_bundle.tar.gz
+            ls -la
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
