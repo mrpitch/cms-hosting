@@ -196,7 +196,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${REMOTE_PROJECT_PATH}"
-          cp -r deploy_bundle/* "${REMOTE_PROJECT_PATH}/"
+          # Copy all files including hidden ones (like .env)
+          cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
           echo "Files copied to ${REMOTE_PROJECT_PATH}"
           ls -la "${REMOTE_PROJECT_PATH}"
 
@@ -298,7 +299,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${REMOTE_PROJECT_PATH}"
-          cp -r deploy_bundle/* "${REMOTE_PROJECT_PATH}/"
+          # Copy all files including hidden ones (like .env)
+          cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
           echo "Files copied to ${REMOTE_PROJECT_PATH}"
           ls -la "${REMOTE_PROJECT_PATH}"
 
