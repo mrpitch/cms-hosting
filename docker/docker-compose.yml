@@ -4,10 +4,11 @@ services:
   next:
     image: ${NEXT_IMAGE:-cms-hosting-next:local}
     build:
-      context: .
-      dockerfile: Dockerfile
+    # set context to project root and path to Dockerfile because the Dockerfile is in the docker/app directory
+      context: ..
+      dockerfile: docker/app/Dockerfile
     env_file:
-      - ./.env
+      - ../.env
     environment:
       - NODE_ENV=production
       - HOSTNAME=0.0.0.0
@@ -18,6 +19,7 @@ services:
   reverse-proxy:
     image: ${NGINX_IMAGE:-cms-hosting-nginx:local}
     build:
+    #context is relative to /docker directory
       context: ./nginx
     depends_on:
       - next
@@ -33,6 +35,7 @@ services:
     restart: unless-stopped
 
   certbot:
+    #context is relative to /docker directory
     image: certbot/certbot:latest
     depends_on:
       - reverse-proxy
