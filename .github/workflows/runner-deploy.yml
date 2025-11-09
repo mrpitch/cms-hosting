@@ -109,7 +109,10 @@ jobs:
             # Create runner directory (no sudo needed - user owns home directory)
             mkdir -p "${REMOTE_RUNNER_PATH}"
             
-            # Create runner environment file
+            # Stop service if running (so it picks up new env vars when restarted)
+            sudo systemctl stop gh-runner || true
+            
+            # Create runner environment file (overwrites existing)
             cat > "${REMOTE_RUNNER_PATH}/runner.env" << EOF
             REPO=${RUNNER_REPO}
             RUNNER_NAME=${RUNNER_NAME}
@@ -120,7 +123,7 @@ jobs:
             
             # Make script executable
             chmod +x "${REMOTE_RUNNER_PATH}/register-and-run.sh"
-
+            
             # Create systemd unit (reference script directly from home directory)
             cat | sudo tee /etc/systemd/system/gh-runner.service >/dev/null <<UNIT
             [Unit]
@@ -151,7 +154,7 @@ jobs:
               install-only) echo "Unit installed. Not starting."; exit 0 ;;
               start)   sudo systemctl enable --now gh-runner ;;
               stop)    sudo systemctl stop gh-runner ;;
-              restart) sudo systemctl restart gh-runner ;;
+              restart) sudo systemctl stop gh-runner; sudo systemctl start gh-runner ;;
               status)  sudo systemctl status gh-runner --no-pager || true ;;
               *)       sudo systemctl enable --now gh-runner ;;
             esac
