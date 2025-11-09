@@ -88,9 +88,11 @@ jobs:
           envs: RUNNER_REPO,RUNNER_LABELS,RUNNER_NAME,RUNNER_REG_PAT,REMOTE_RUNNER_PATH
           script: |
             set -euo pipefail
-            sudo mkdir -p "${REMOTE_RUNNER_PATH}"
-            sudo chown -R "$USER":"$USER" "${REMOTE_RUNNER_PATH}"
-
+            
+            # Create runner directory (no sudo needed - user owns home directory)
+            mkdir -p "${REMOTE_RUNNER_PATH}"
+            
+            # Create runner environment file
             cat > "${REMOTE_RUNNER_PATH}/runner.env" << 'EOF'
             REPO=${RUNNER_REPO}
             RUNNER_NAME=${RUNNER_NAME}
@@ -98,11 +100,12 @@ jobs:
             RUNNER_REG_PAT=${RUNNER_REG_PAT}
             EOF
             chmod 600 "${REMOTE_RUNNER_PATH}/runner.env"
+            
+            # Make script executable
+            chmod +x "${REMOTE_RUNNER_PATH}/register-and-run.sh"
 
-            sudo install -m 0755 "${REMOTE_RUNNER_PATH}/register-and-run.sh" "/usr/local/bin/gh-runner-register-and-run"
-
-            # systemd unit
-            cat | sudo tee /etc/systemd/system/gh-runner.service >/dev/null <<'UNIT'
+            # Create systemd unit (reference script directly from home directory)
+            cat | sudo tee /etc/systemd/system/gh-runner.service >/dev/null <<UNIT
             [Unit]
             Description=GitHub Actions Runner (Ephemeral, Docker)
             After=docker.service
@@ -110,9 +113,10 @@ jobs:
 
             [Service]
             Type=simple
-            EnvironmentFile=%h/runner.env
-            WorkingDirectory=%h
-            ExecStart=/usr/local/bin/gh-runner-register-and-run
+            User=${USER}
+            EnvironmentFile=${REMOTE_RUNNER_PATH}/runner.env
+            WorkingDirectory=${REMOTE_RUNNER_PATH}
+            ExecStart=${REMOTE_RUNNER_PATH}/register-and-run.sh
             Restart=always
             RestartSec=10
             # Hardening
