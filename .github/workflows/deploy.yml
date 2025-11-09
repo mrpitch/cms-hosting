@@ -31,7 +31,7 @@ env:
 
 jobs:
   lint-build:
-    runs-on: [self-hosted, hetzner]
+    runs-on: [self-hosted]
     if: >
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
@@ -74,7 +74,7 @@ jobs:
 
   docker:
     needs: lint-build
-    runs-on: [self-hosted, hetzner]
+    runs-on: [self-hosted]
     if: >
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
@@ -132,7 +132,7 @@ jobs:
 
   deploy:
     needs: docker
-    runs-on: [self-hosted, hetzner]
+    runs-on: [self-hosted]
     if: >
       github.event_name != 'workflow_dispatch' ||
       inputs.deploy_only != 'true'
@@ -208,7 +208,7 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' &&
       inputs.deploy_only == 'true'
-    runs-on: [self-hosted, hetzner]
+    runs-on: [self-hosted]
     env:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
