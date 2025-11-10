@@ -1,4 +1,4 @@
-name: CI - Validate Build & Lint
+name: 01 - CI - Validate Build & Lint
 
 on:
   push:
