@@ -77,13 +77,3 @@ jobs:
           cache-to: type=gha,mode=min
           no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
 
-      - name: Save built image tags
-        run: |
-            echo "NEXT_IMAGE=${{ steps.images.outputs.next_image }}:${{ github.sha }}" > image-tags.env
-            echo "NGINX_IMAGE=${{ steps.images.outputs.nginx_image }}:${{ github.sha }}" >> image-tags.env
-         
-      - name: Upload built image tags
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-tags
-          path: image-tags.env  

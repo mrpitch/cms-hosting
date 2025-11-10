@@ -32,18 +32,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download image tags
-        uses: actions/download-artifact@v4
-        with:
-          name: image-tags
-          path: .
-      
-      - name: Load image tag info
+      - name: Determine image tags
         id: images
         run: |
-          source image-tags.env
-          echo "next_image=$NEXT_IMAGE" >> $GITHUB_OUTPUT
-          echo "nginx_image=$NGINX_IMAGE" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+          echo "next_image=${REGISTRY}/${REPO}-next:latest" >> "$GITHUB_OUTPUT"
+          echo "nginx_image=${REGISTRY}/${REPO}-nginx:latest" >> "$GITHUB_OUTPUT"
 
       - name: Prepare deployment bundle
         run: |
