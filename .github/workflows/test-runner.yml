@@ -1,4 +1,4 @@
-name: Test Hetzner Runner
+name: Test - Runner
 
 on:
   workflow_dispatch:
