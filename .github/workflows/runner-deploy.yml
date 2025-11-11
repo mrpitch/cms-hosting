@@ -24,9 +24,9 @@ jobs:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_KEY:  ${{ secrets.SSH_KEY }}
-      REMOTE_RUNNER_PATH: ${{ secrets.REMOTE_RUNNER_PATH }}
-      RUNNER_REPO: ${{ secrets.RUNNER_REPO }}
-      RUNNER_LABELS: ${{ secrets.RUNNER_LABELS }}
+      REMOTE_RUNNER_PATH: ${{ vars.REMOTE_RUNNER_PATH }}
+      RUNNER_REPO: ${{ github.repository }}
+      RUNNER_LABELS: ${{ vars.RUNNER_LABELS }}
       RUNNER_NAME_SECRET: ${{ secrets.RUNNER_NAME_SECRET }}
       RUNNER_REG_PAT: ${{ secrets.RUNNER_REG_PAT }}
 

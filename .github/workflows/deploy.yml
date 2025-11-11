@@ -24,10 +24,10 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted]
     env:
-      REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
-      DOMAIN: ${{ secrets.DOMAIN }}
-      DOMAINS: ${{ secrets.DOMAINS }}
-      SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
+      REMOTE_PROJECT_PATH: ${{ vars.REMOTE_PROJECT_PATH }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      DOMAINS: ${{ vars.DOMAINS }}
+      SSL_EMAIL: ${{ vars.SSL_EMAIL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
