@@ -1,12 +1,6 @@
 name: 02 - Build - Docker Images
 
 on:
-  # push:
-  #   branches: [main]
-  #   paths-ignore:
-  #     - '**.md'
-  #     - 'docs/**'
-  #     - '.github/**'
   workflow_run:
     workflows: ["01 - CI - Validate Build and Lint"]
     types: [completed]
