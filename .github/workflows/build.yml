@@ -8,7 +8,7 @@ on:
   #     - 'docs/**'
   #     - '.github/**'
   workflow_run:
-    workflows: ["01 - CI - Validate Build & Lint"]
+    workflows: ["01 - CI - Validate Build and Lint"]
     types: [completed]
 
   workflow_dispatch:
