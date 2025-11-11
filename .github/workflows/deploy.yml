@@ -2,7 +2,7 @@ name: 03 - Deploy - Production
 
 on:
   workflow_run:
-    workflows: ["Build - Docker Images"]
+    workflows: ["02 - Build - Docker Images"]
     types:
       - completed
   workflow_dispatch:
