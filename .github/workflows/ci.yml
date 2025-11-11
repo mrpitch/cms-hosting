@@ -1,14 +1,14 @@
-name: CI - Validate Build & Lint
+name: 01 - CI - Validate Build & Lint
 
 on:
-  push:
-    branches: ["*"]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/**'
+  # push:
+  #   branches: ["*"]
+  #   paths-ignore:
+  #     - '**.md'
+  #     - 'docs/**'
+  #     - '.github/**'
   pull_request:
-    branches: ["*"]
+    branches: ["main"]
     paths-ignore:
       - '**.md'
       - 'docs/**'

@@ -16,7 +16,7 @@ export default function Home() {
           <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
             To get started, edit the page.tsx file.
           </h1>
-          <h2 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
+          <h2 className="max-w-xs text-xl font-semibold leading-10 tracking-tight text-zinc-600 dark:text-zinc-50">
             Updated at {new Date().toISOString()}
           </h2>
           <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
