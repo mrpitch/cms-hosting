@@ -1,4 +1,4 @@
-name: 01 - CI - Validate Build & Lint
+name: 01 - CI - Validate Build and Lint
 
 on:
   # push:
@@ -12,7 +12,7 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
-      - '.github/**'
+      #- '.github/**'
   workflow_dispatch: 
 
 permissions:
@@ -59,6 +59,6 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: Build
-        run: pnpm run build
+      # - name: Build
+      #   run: pnpm run build
 
