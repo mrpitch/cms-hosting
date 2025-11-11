@@ -1,0 +1,173 @@
+name: Deploy - Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "start|stop|restart|status|install-only"
+        required: true
+        default: "start"
+
+permissions:
+  contents: read
+  actions: write   # needed if you later query runner APIs from GITHUB_TOKEN
+
+concurrency:
+  group: runner-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runner-bootstrap:
+    runs-on: ubuntu-latest
+
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_KEY:  ${{ secrets.SSH_KEY }}
+      REMOTE_RUNNER_PATH: ${{ vars.REMOTE_RUNNER_PATH }}
+      RUNNER_REPO: ${{ github.repository }}
+      RUNNER_LABELS: ${{ vars.RUNNER_LABELS }}
+      RUNNER_NAME_SECRET: ${{ secrets.RUNNER_NAME_SECRET }}
+      RUNNER_REG_PAT: ${{ secrets.RUNNER_REG_PAT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add host key (SSH known_hosts)
+        run: |
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure Docker & Compose on VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            if ! command -v docker >/dev/null 2>&1; then
+              # Install Docker using official repo
+              sudo apt-get update -y
+              sudo apt-get install -y ca-certificates curl gnupg
+              sudo install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              echo \
+                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+                $(. /etc/os-release && echo $UBUNTU_CODENAME) stable" \
+                | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo usermod -aG docker $USER || true
+            fi
+            docker info >/dev/null 2>&1 || sudo systemctl start docker
+
+      - name: Install runner dependencies
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            # Install jq and curl if not present (required for runner script)
+            if ! command -v jq >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+              sudo apt-get update -y
+              sudo apt-get install -y jq curl
+            fi
+            # Verify installations
+            jq --version
+            curl --version
+
+      - name: Upload runner files (script + unit)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          source: docker/runner/
+          target: ${{ env.REMOTE_RUNNER_PATH }}
+          strip_components: 2
+
+      - name: Write env & install systemd unit
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          envs: RUNNER_REPO,RUNNER_LABELS,RUNNER_NAME_SECRET,RUNNER_REG_PAT,REMOTE_RUNNER_PATH
+          script: |
+            set -euo pipefail
+            
+            # Create runner directory (no sudo needed - user owns home directory)
+            mkdir -p "${REMOTE_RUNNER_PATH}"
+            
+            # Stop service if running (so it picks up new env vars when restarted)
+            sudo systemctl stop gh-runner || true
+            
+            # Remove old env file to ensure clean update
+            rm -f "${REMOTE_RUNNER_PATH}/runner.env"
+            
+            # Create runner environment file with current values
+            cat > "${REMOTE_RUNNER_PATH}/runner.env" << EOF
+            REPO=${RUNNER_REPO}
+            RUNNER_NAME=${RUNNER_NAME_SECRET}
+            RUNNER_LABELS=${RUNNER_LABELS}
+            RUNNER_REG_PAT=${RUNNER_REG_PAT}
+            EOF
+            chmod 600 "${REMOTE_RUNNER_PATH}/runner.env"
+            
+            # Verify file was created with correct values
+            echo "Updated runner.env:"
+            cat "${REMOTE_RUNNER_PATH}/runner.env"
+            
+            # Make script executable
+            chmod +x "${REMOTE_RUNNER_PATH}/register-and-run.sh"
+            
+            # Create systemd unit (reference script directly from home directory)
+            cat | sudo tee /etc/systemd/system/gh-runner.service >/dev/null <<UNIT
+            [Unit]
+            Description=GitHub Actions Runner (Ephemeral, Docker)
+            After=docker.service
+            Wants=docker.service
+
+            [Service]
+            Type=simple
+            User=${USER}
+            EnvironmentFile=${REMOTE_RUNNER_PATH}/runner.env
+            WorkingDirectory=${REMOTE_RUNNER_PATH}
+            ExecStart=${REMOTE_RUNNER_PATH}/register-and-run.sh
+            Restart=always
+            RestartSec=10
+            # Hardening
+            NoNewPrivileges=true
+            ProtectSystem=full
+            ProtectHome=false
+
+            [Install]
+            WantedBy=multi-user.target
+            UNIT
+
+            sudo systemctl daemon-reload
+
+            case "${{ github.event.inputs.action }}" in
+              install-only) echo "Unit installed. Not starting."; exit 0 ;;
+              start)   sudo systemctl enable --now gh-runner ;;
+              stop)    sudo systemctl stop gh-runner ;;
+              restart) sudo systemctl stop gh-runner; sudo systemctl start gh-runner ;;
+              status)  sudo systemctl status gh-runner --no-pager || true ;;
+              *)       sudo systemctl enable --now gh-runner ;;
+            esac
+
+      - name: Show runner status
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            systemctl --no-pager status gh-runner || true
+            docker ps --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}' || true

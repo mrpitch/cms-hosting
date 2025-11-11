@@ -1,233 +1,39 @@
-name: CI/CD (v1)
+name: 03 - Deploy - Production
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["02 - Build - Docker Images"]
+    types:
+      - completed
   workflow_dispatch:
     inputs:
-      force_rebuild:
-        description: "Force rebuild and push images (ignore cache)"
-        required: false
-        default: "false"
       deploy_only:
-        description: "Skip builds and redeploy the latest published images"
+        description: "Deploy without building (use latest images)"
         required: false
         default: "false"
 
 permissions:
   contents: read
-  packages: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  packages: read
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
-  lint-build:
-    runs-on: ubuntu-latest
-    if: >
-      github.event_name != 'workflow_dispatch' ||
-      inputs.deploy_only != 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Use Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Enable Corepack (to use pnpm)
-        run: corepack enable
-
-      - name: Restore pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache Next.js build artifacts
-        uses: actions/cache@v4
-        with:
-          path: .next/cache
-          key: ${{ runner.os }}-next-build-${{ hashFiles('pnpm-lock.yaml', 'next.config.js') }}
-          restore-keys: |
-            ${{ runner.os }}-next-build-
-
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Build
-        run: pnpm run build
-
-  docker:
-    needs: lint-build
-    runs-on: ubuntu-latest
-    if: >
-      github.event_name != 'workflow_dispatch' ||
-      inputs.deploy_only != 'true'
-    outputs:
-      next_image: ${{ steps.images.outputs.next_image }}
-      nginx_image: ${{ steps.images.outputs.nginx_image }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive image names
-        id: images
-        run: |
-          REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
-          echo "next_image=${REGISTRY}/${REPO}-next" >> "$GITHUB_OUTPUT"
-          echo "nginx_image=${REGISTRY}/${REPO}-nginx" >> "$GITHUB_OUTPUT"
-
-      - name: Build & push Next.js image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: |
-            ${{ steps.images.outputs.next_image }}:latest
-            ${{ steps.images.outputs.next_image }}:${{ github.sha }}
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-          no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
-
-      - name: Build & push Nginx image
-        uses: docker/build-push-action@v6
-        with:
-          context: nginx
-          file: nginx/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.images.outputs.nginx_image }}:latest
-            ${{ steps.images.outputs.nginx_image }}:${{ github.sha }}
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-          no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == 'true' }}
-
   deploy:
-    needs: docker
-    runs-on: ubuntu-latest
-    if: >
-      github.event_name != 'workflow_dispatch' ||
-      inputs.deploy_only != 'true'
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted]
     env:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
-      REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
-      DOMAIN: ${{ secrets.DOMAIN }}
-      DOMAINS: ${{ secrets.DOMAINS }}
-      SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
-      NEXT_IMAGE: ${{ needs.docker.outputs.next_image }}:latest
-      NGINX_IMAGE: ${{ needs.docker.outputs.nginx_image }}:latest
+      REMOTE_PROJECT_PATH: ${{ vars.REMOTE_PROJECT_PATH }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      DOMAINS: ${{ vars.DOMAINS }}
+      SSL_EMAIL: ${{ vars.SSL_EMAIL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Debug workspace
-        run: |
-          pwd
-          ls -R "${{ github.workspace }}"
-
-      - name: Prepare deployment bundle
-        run: |
-          set -euo pipefail
-          mkdir -p deploy_bundle
-          cp docker-compose.yml deploy_bundle/
-          
-          # Generate .env from secrets
-          cat > deploy_bundle/.env << EOF
-          NODE_ENV=production
-          PORT=3000
-          NEXT_TELEMETRY_DISABLED=1
-          NEXT_PUBLIC_SITE_URL=https://${DOMAIN}
-          DOMAIN=${DOMAIN}
-          DOMAINS=${DOMAINS}
-          SSL_EMAIL=${SSL_EMAIL}
-          NEXT_IMAGE=${NEXT_IMAGE}
-          NGINX_IMAGE=${NGINX_IMAGE}
-          EOF
-          
-          cp -R nginx deploy_bundle/
-          cp -R certbot deploy_bundle/
-
-      - name: Copy deployment files to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          source: deploy_bundle/
-          target: ${{ env.REMOTE_PROJECT_PATH }}
-          strip_components: 1
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,NEXT_IMAGE,NGINX_IMAGE
-          script: |
-            set -euo pipefail
-            cd "${REMOTE_PROJECT_PATH}"
-            export DOMAIN="${DOMAIN:-}"
-            export SSL_EMAIL="${SSL_EMAIL:-}"
-            export DOMAINS="${DOMAINS:-}"
-            docker compose pull
-            docker compose down --remove-orphans
-            docker compose up -d
-
-  manual-deploy:
-    if: >
-      github.event_name == 'workflow_dispatch' &&
-      inputs.deploy_only == 'true'
-    runs-on: ubuntu-latest
-    env:
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
-      REMOTE_PROJECT_PATH: ${{ secrets.REMOTE_PROJECT_PATH }}
-      DOMAIN: ${{ secrets.DOMAIN }}
-      DOMAINS: ${{ secrets.DOMAINS }}
-      SSL_EMAIL: ${{ secrets.SSL_EMAIL }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Debug workspace
-        run: |
-          pwd
-          ls -R "${{ github.workspace }}"
 
       - name: Determine image tags
-        id: manual_images
+        id: images
         run: |
           set -euo pipefail
           REPO=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
@@ -237,8 +43,28 @@ jobs:
       - name: Prepare deployment bundle
         run: |
           set -euo pipefail
+          
+          echo "Current directory: $(pwd)"
+          echo "Checking docker directory:"
+          ls -la docker/ || echo "docker/ directory not found!"
+          
           mkdir -p deploy_bundle
-          cp docker-compose.yml deploy_bundle/
+          
+          # Verify files exist before copying
+          if [ ! -f "docker/docker-compose.yml" ]; then
+            echo "ERROR: docker/docker-compose.yml not found!"
+            exit 1
+          fi
+          if [ ! -d "docker/nginx" ]; then
+            echo "ERROR: docker/nginx directory not found!"
+            exit 1
+          fi
+          if [ ! -d "docker/certbot" ]; then
+            echo "ERROR: docker/certbot directory not found!"
+            exit 1
+          fi
+          
+          cp docker/docker-compose.yml deploy_bundle/
           
           # Generate .env from secrets
           cat > deploy_bundle/.env << EOF
@@ -249,41 +75,56 @@ jobs:
           DOMAIN=${DOMAIN}
           DOMAINS=${DOMAINS}
           SSL_EMAIL=${SSL_EMAIL}
-          NEXT_IMAGE=${NEXT_IMAGE}
-          NGINX_IMAGE=${NGINX_IMAGE}
+          NEXT_IMAGE=${{ steps.images.outputs.next_image }}
+          NGINX_IMAGE=${{ steps.images.outputs.nginx_image }}
           EOF
           
-          cp -R nginx deploy_bundle/
-          cp -R certbot deploy_bundle/
+          cp -R docker/nginx deploy_bundle/nginx
+          cp -R docker/certbot deploy_bundle/certbot
+          
+          # Verify bundle was created
+          echo "Deploy bundle contents:"
+          ls -la deploy_bundle/
+          echo "Deploy bundle size:"
+          du -sh deploy_bundle/
 
       - name: Copy deployment files to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          source: deploy_bundle/
-          target: ${{ env.REMOTE_PROJECT_PATH }}
-          strip_components: 1
+        run: |
+          set -euo pipefail
+          mkdir -p "${REMOTE_PROJECT_PATH}"
+          # Copy all files including hidden ones (like .env)
+          cp -r deploy_bundle/. "${REMOTE_PROJECT_PATH}/"
+          echo "Files copied to ${REMOTE_PROJECT_PATH}"
+          ls -la "${REMOTE_PROJECT_PATH}"
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          MANUAL_NEXT_IMAGE: ${{ steps.manual_images.outputs.next_image }}
-          MANUAL_NGINX_IMAGE: ${{ steps.manual_images.outputs.nginx_image }}
-        with:
-          host: ${{ env.SSH_HOST }}
-          username: ${{ env.SSH_USER }}
-          key: ${{ env.SSH_KEY }}
-          envs: DOMAIN,DOMAINS,SSL_EMAIL,REMOTE_PROJECT_PATH,MANUAL_NEXT_IMAGE,MANUAL_NGINX_IMAGE
-          script: |
-            set -euo pipefail
-            cd "${REMOTE_PROJECT_PATH}"
-            export DOMAIN="${DOMAIN:-}"
-            export SSL_EMAIL="${SSL_EMAIL:-}"
-            export DOMAINS="${DOMAINS:-}"
-            export NEXT_IMAGE="${MANUAL_NEXT_IMAGE}"
-            export NGINX_IMAGE="${MANUAL_NGINX_IMAGE}"
-            docker compose pull
-            docker compose down --remove-orphans
-            docker compose up -d
+      - name: Deploy application
+        run: |
+          set -euo pipefail
+          cd "${REMOTE_PROJECT_PATH}"
+          
+          # Fix docker-compose.yml to use .env instead of ../.env
+          # (since docker-compose.yml and .env are now in the same directory)
+          sed -i 's|\.\./\.env|.env|g' docker-compose.yml
+          
+          # Verify .env file exists
+          if [ ! -f ".env" ]; then
+            echo "ERROR: .env file not found in ${REMOTE_PROJECT_PATH}"
+            ls -la
+            exit 1
+          fi
+          
+          export DOMAIN="${DOMAIN:-}"
+          export SSL_EMAIL="${SSL_EMAIL:-}"
+          export DOMAINS="${DOMAINS:-}"
+          
+          echo "🔄 Pulling latest images..."
+          docker compose pull
+          
+          echo "🧹 Removing old containers..."
+          docker compose down --remove-orphans
+          
+          echo "🚀 Starting updated containers..."
+          docker compose up -d
+          
+          echo "✅ Deployment completed successfully"
+          docker ps --format "table {{.Names}}\t{{.Status}}"
